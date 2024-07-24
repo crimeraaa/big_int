@@ -85,7 +85,7 @@ big_int::BigInt big_int::create()
     BigInt self;
     self.length   = 0;
     self.capacity = sizeof(self.digits) / sizeof(self.digits[0]);
-    std::fill_n(begin(self), self.capacity, 0); // memset buffer to 0
+    std::fill_n(begin(self), self.capacity, Digit{0}); // memset buffer to 0
     return self;
 }
 
@@ -139,10 +139,10 @@ void big_int::add_at(BigInt& self, Index i, Digit d)
         return;
     }
 
-    Pair cur{i, d};
-    int  carry = 1; // Initialize to some nonzero so we can begin the loop.
+    Pair  cur{i, d};
+    Digit carry = 1; // Initialize to some nonzero so we can begin the loop.
     while (carry != 0) {
-        int sum = read_at(self, cur.index) + cur.digit;
+        Digit sum = read_at(self, cur.index) + cur.digit;
         if (sum >= DIGIT_BASE) {
             carry = sum / DIGIT_BASE;
             sum  %= DIGIT_BASE;
