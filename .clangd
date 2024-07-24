@@ -1,5 +1,0 @@
-CompileFlags:
-  Add: [
-    "-D_DEBUG"
-    "-IC:/Lua51/"
-  ]
