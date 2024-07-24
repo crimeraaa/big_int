@@ -1,5 +1,20 @@
-CC 		 := cl
+CC		:= cl
 CC_FLAGS := -nologo -EHsc -std:c++17 -W3 -WX -Fe"bin/" -Fo"obj/"
+
+# This directory should never be created by the makefile!
+DIR_SRC	:= src
+DIR_OBJ	:= obj
+DIR_BIN	:= bin
+DIR_ALL	:= $(DIR_OBJ) $(DIR_BIN)
+
+TARGETS	:= big_int arena
+OUT_EXE := $(TARGETS:%=$(DIR_BIN)/%.exe)
+OUT_OBJ := $(TARGETS:%=$(DIR_OBJ)/%.obj)
+OUT_ALL := $(OUT_EXE) $(OUT_OBJ)
+
+# Clear the builtin suffix rules.
+.SUFFIXES:
+.SUFFIXES: .hpp .cpp .obj .exe
 
 .PHONY: all
 all: debug
@@ -22,14 +37,14 @@ release: CC_FLAGS += -O1
 release: build
 	
 .PHONY: build
-build: bin/big_int.exe
+build: $(OUT_EXE)
 
-bin obj:
+$(DIR_ALL):
 	$(MKDIR) $@
 
-bin/big_int.exe: src/big_int.cpp src/common.hpp | bin obj
+$(DIR_BIN)/%.exe: $(DIR_SRC)/%.cpp $(DIR_SRC)/%.hpp $(DIR_SRC)/common.hpp | $(DIR_ALL)
 	$(CC) $(CC_FLAGS) $<
 
 .PHONY: clean
 clean:
-	$(RM) bin/big_int.exe obj/big_int.obj
+	$(RM) $(OUT_ALL)
