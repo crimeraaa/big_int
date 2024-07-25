@@ -23,11 +23,11 @@ typedef void (*ErrorFn)(const char *msg, size sz, void *ctx);
 
 struct Arena {
     Arena  *next;
-    uint8_t flags;
     ErrorFn handler;
     void   *context;  // The sole argument to `handler`.
     size    active;   // Number of bytes currently being used.
     size    capacity; // Number of bytes we allocated in total.
+    uint8_t flags;    // `ARENA_(NO)*` bit flags, or `ARENA_(NO)DEFAULTFLAGS`.
     byte    buffer[]; // C99 Flexible array member.
 };
 

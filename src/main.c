@@ -38,7 +38,7 @@ int main(int argc, const char *argv[])
     if (setjmp(err) == 0) {
         arena = arena_xnew(128, &handle_error, &err);
 #else   // DEBUG_USE_LONGJMP not defined.
-        arena = arena_xnew(64);
+        arena = arena_xnew(128);
 #endif  // DEBUG_USE_LONGJMP
 
         test_arena(argc, argv, arena);

@@ -121,7 +121,7 @@ void arena_main(const LString args[], size count, Arena *arena)
 static void s_errorfn(const char *msg, size req, void *ctx)
 {
     cast(void, ctx);
-    fprintf(stderr, "[FATAL]: %s (requested %td bytes)\n", msg, req);
+    eprintfln("[FATAL]: %s (requested %td bytes)", msg, req);
     fflush(stderr);
     exit(EXIT_FAILURE);
 }
@@ -215,7 +215,8 @@ void *arena_alloc(Arena *self, size sz, size align)
     // Try to find or chain an arena that can accomodate our allocation.
     while (it->active + sz + pad > it->capacity) {
         if (it->next == nullptr) {
-            size ncap = next_pow2(it->active + sz + pad);
+            size req  = sz + pad;
+            size ncap = (req > it->capacity) ? next_pow2(req) : it->capacity;
 #if DEBUG_MEMERR == DEBUG_MEMERR_ALLOC
             Arena *next = nullptr;
 #else
@@ -227,7 +228,6 @@ void *arena_alloc(Arena *self, size sz, size align)
                 else
                     it->handler("Failed to chain new Arena", ncap, it->context);
             }
-            it->next    = next;
         }
         it  = it->next;
         pad = ARENA_GETPADDING(align, it->active);

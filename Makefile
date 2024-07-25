@@ -10,7 +10,8 @@ OUT_OBJ	:= $(IN_LIST:$(DIR_SRC)/*.c=$(DIR_OBJ)/*.obj)
 OUT_ALL	:= $(OUT_EXE) $(OUT_OBJ)
 
 # CL.EXE flags that are indepdendent of C or C++.
-COMMON_FLAGS := -nologo -W4 -WX -permissive- -Zc:preprocessor -Fe:"$(OUT_EXE)" -Fo:"$(DIR_OBJ)/"
+COMMON_FLAGS := -nologo -W4 -WX -permissive- -Zc:preprocessor \
+				-Fe:"$(OUT_EXE)" -Fo:"$(DIR_OBJ)/"
 
 # /Od		disable optimizations (default).
 # /Zi		enable debugging information. Needed for AddressSanitizer.
@@ -24,7 +25,7 @@ COMMON_FLAGS := -nologo -W4 -WX -permissive- -Zc:preprocessor -Fe:"$(OUT_EXE)" -
 # DEBUG_USE_PRINT
 # DEBUG_MEMERR={1,2}
 # DEBUG_USE_LONGJMP
-DEBUG_FLAGS := -Od -Zi -Fd:"$(DIR_BIN)/" -fsanitize=address -DDEBUG_USE_PRINT
+DEBUG_FLAGS := -Od -Zi -Fd:"$(DIR_BIN)/" -fsanitize=address
 
 CC		:= cl
 CC_FLAGS := $(COMMON_FLAGS) -std:c11 -Zc:__STDC__

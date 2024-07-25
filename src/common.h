@@ -10,9 +10,12 @@
 C4200
     nonstandard extension used: zero-sized array in struct/union
     Even though flexible array members are part of the C11 standard...
+C4996
+    'fopen': This function or variable may be unsafe. Consider using fopen_s
+    instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS.
  */
 #ifdef _MSC_VER
-#   pragma warning( disable : 4200 )
+#   pragma warning( disable : 4200 4996 )
 #endif
 
 #ifdef __cplusplus
@@ -24,14 +27,19 @@ C4200
 #   define cmp_literal(T, ...)  (T){__VA_ARGS__}
 #endif  // __cplusplus
 
+#define eprintf(fmt, ...)           fprintf(stderr, fmt, __VA_ARGS__)
+#define eprintfln(fmt, ...)         eprintf(fmt "\n", __VA_ARGS__)
+#define eprintln(s)                 eprintfln("%s", s)
+
 #ifdef DEBUG_USE_PRINT
-#   define DEBUG_PRINTF(fmt, ...)   fprintf(stderr, "%-12s: " fmt, __func__, __VA_ARGS__)
+#   define DEBUG_PRINTF(fmt, ...)   eprintf("%-12s: " fmt, __func__, __VA_ARGS__)
+#   define DEBUG_PRINTLN(msg)       DEBUG_PRINTFLN("%s", msg)
+#   define DEBUG_PRINTFLN(fmt, ...) DEBUG_PRINTF(fmt "\n", __VA_ARGS__)
 #else   // DEBUG_USE_PRINT not defined.
 #   define DEBUG_PRINTF(fmt, ...)
+#   define DEBUG_PRINTLN(msg)
+#   define DEBUG_PRINTFLN(fmt, ...)
 #endif  // DEBUG_USE_PRINT
-
-#define DEBUG_PRINTFLN(fmt, ...)    DEBUG_PRINTF(fmt "\n", __VA_ARGS__)
-#define DEBUG_PRINTLN(msg)          DEBUG_PRINTFLN("%s", msg)
 
 #define array_literal(T, ...)       cmp_literal(T[], __VA_ARGS__)
 #define array_sizeof(T, N)          (sizeof((T)[0]) * (N))
