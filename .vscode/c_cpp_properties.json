@@ -10,9 +10,11 @@
                 "_DEBUG",
                 "UNICODE",
                 "_UNICODE",
-                "BIGINT_DEBUG"
+                "DEBUG_USE_PRINT"
             ],
             "windowsSdkVersion": "10.0.19041.0",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
             "compilerPath": "cl.exe",
             "intelliSenseMode": "windows-msvc-x64"
         }
