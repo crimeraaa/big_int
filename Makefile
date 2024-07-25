@@ -10,10 +10,12 @@ OUT_OBJ	:= $(IN_LIST:$(DIR_SRC)/*.c=$(DIR_OBJ)/*.obj)
 OUT_ALL	:= $(OUT_EXE) $(OUT_OBJ)
 
 # CL.EXE flags that are indepdendent of C or C++.
-COMMON_FLAGS := -nologo -W4 -WX -permissive- -Zc:preprocessor -Fe"$(OUT_EXE)" -Fo"obj/"
+COMMON_FLAGS := -nologo -W4 -WX -permissive- -Zc:preprocessor -Fe:"$(OUT_EXE)" -Fo:"$(DIR_OBJ)/"
 
 # /Od		disable optimizations (default).
-# /Zi		enable debugging information.
+# /Zi		enable debugging information. Needed for AddressSanitizer.
+# 			NOTE: This will generate a `vc*.pdb` file in the current directory.
+#			Set the output directory with `-Fd:"<path>/"`.
 # /D<macro>	define <macro> for this compilation unit.
 # 			NOTE: #define _DEBUG in MSVC requires linking to a debug lib.
 # /MDd		linked with MSVCRTD.LIB debug lib. Also defines _DEBUG.
@@ -22,7 +24,7 @@ COMMON_FLAGS := -nologo -W4 -WX -permissive- -Zc:preprocessor -Fe"$(OUT_EXE)" -F
 # DEBUG_USE_PRINT
 # DEBUG_MEMERR={1,2}
 # DEBUG_USE_LONGJMP
-DEBUG_FLAGS := -Od -DDEBUG_USE_PRINT
+DEBUG_FLAGS := -Od -Zi -Fd:"$(DIR_BIN)/" -fsanitize=address -DDEBUG_USE_PRINT
 
 CC		:= cl
 CC_FLAGS := $(COMMON_FLAGS) -std:c11 -Zc:__STDC__

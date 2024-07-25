@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdalign.h>   //  alignof
 #include <stdlib.h>     //  malloc family
 #include <stdio.h>      //  printf family
 #include <stdint.h>     //  [u]int family
@@ -18,12 +19,6 @@ C4200
 #   define cast(T, expr)        (static_cast<T>(expr))
 #   define cmp_literal(T, ...)  {__VA_ARGS__}
 #else   // __cplusplus not defined.
-// MSVC, even in C11 mode, does NOT have `stdalign.h`. Typical Microsoft...
-#   ifdef _WIN32
-#       define alignof(T)   _Alignof(T)
-#   else    // _WIN32 not defined.
-#       include <stdalign.h>
-#   endif   // _WIN32
 #   define nullptr              NULL
 #   define cast(T, expr)        ((T)(expr))
 #   define cmp_literal(T, ...)  (T){__VA_ARGS__}
@@ -44,11 +39,12 @@ C4200
 #define fam_sizeof(T, memb, n)      (sizeof(T) + array_sizeof(memb, n))
 #define fam_new(T, memb, n)         cast(T*, malloc(fam_sizeof(T, memb, n)))
 
-typedef  size_t Size;
-typedef uint8_t Byte;
-typedef  struct LString {
+typedef   uint8_t byte;
+typedef ptrdiff_t size;
+
+typedef struct LString {
     const char *data;   // Read-only and non-owning view to some buffer.
-    Size        length; // Number of desired characters sans the nul terminator.
+    size        length; // Number of desired characters sans the nul terminator.
 } LString;
 
 #define lstr_make(s, n) cmp_literal(LString, s, n)

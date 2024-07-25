@@ -1,7 +1,7 @@
 #include "arena.h"
 
 #define DEBUG_MEMERR_NEW    1
-#define DEBUG_MEMERR_ALLOC      2
+#define DEBUG_MEMERR_ALLOC  2
 
 #if DEBUG_MEMERR == DEBUG_MEMERR_NEW
 #   define malloc(...)     NULL
@@ -9,7 +9,7 @@
 
 static void xalloc_test()
 {
-    Arena *scratch = arena_new(128, ARENA_DEFAULT, nullptr, nullptr);
+    Arena *scratch = arena_xnew(128);
     DEBUG_PRINTLN("New scratch arena");
     arena_print(scratch);
 
@@ -17,7 +17,7 @@ static void xalloc_test()
     VISUALIZATION:
         [0x00]  *select0
      */
-    DEBUG_PRINTLN("alloc `char`: len = align = extra = default");
+    DEBUG_PRINTLN("alloc `char`: len = default(1), extra = default(0)");
     char *select0 = arena_xalloc(char, scratch);
     arena_print(scratch);
 
@@ -26,7 +26,7 @@ static void xalloc_test()
         [0x00]  *select0
         [0x01]  *select1
      */
-    DEBUG_PRINTLN("alloc `char`: len = 1, align = extra = default");
+    DEBUG_PRINTLN("alloc `char`: len = 1, extra = default(0)");
     char *select1 = arena_xalloc(char, scratch, 1);
     arena_print(scratch);
 
@@ -36,38 +36,24 @@ static void xalloc_test()
         [0x01]  *select1
         [0x02]  *select2
         [0x03]  <padding>
+        [0x04]  -
+        [0x05]  -
     */
-    DEBUG_PRINTLN("alloc `char`: len = 1, align = 2, extra = default");
-    char *select2 = arena_xalloc(char, scratch, 1, 2);
-    arena_print(scratch);
-
-    /*  
-    VISUALIZATION:
-        [0x00]  *select0
-        [0x01]  *select1
-        [0x02]  *select2
-        [0x03]  <padding>
-        [0x04]  *select3
-        [0x05]  <extra>
-        [0x06]  -
-        [0x07]  -
-    */
-    DEBUG_PRINTLN("alloc `char`: len = 1, align = 2, extra = 3");
-    char *select3 = arena_xalloc(char, scratch, 1, 2, 3);
+    DEBUG_PRINTLN("alloc `char`: len = 1, extra = 3");
+    char *select2 = arena_xalloc(char, scratch, 1, 3);
     arena_print(scratch);
     
     printf("[DEBUG]: select0 = %p\n", select0);
     printf("[DEBUG]: select1 = %p\n", select1);
     printf("[DEBUG]: select2 = %p\n", select2);
-    printf("[DEBUG]: select3 = %p\n", select3);
     arena_free(&scratch);
 }
 
-void arena_main(const LString args[], Size count, Arena *arena)
+void arena_main(const LString args[], size count, Arena *arena)
 {
     xalloc_test();
-    for (Size i = 0; i < count; i++) {
-        printf("args[%zu](data=\"%s\", length=%zu)\n",
+    for (size i = 0; i < count; i++) {
+        printf("args[%td](data=\"%s\", length=%td)\n",
                i, args[i].data, args[i].length);
     }
     printf("\n");
@@ -90,13 +76,13 @@ void arena_main(const LString args[], Size count, Arena *arena)
         [0x0]   char
         [0x1]   <padding>
         ...     -
-        [0x8]   size_t[0]
+        [0x8]   size[0]
         ...     -
         [0xf]   -
      */
-    size_t *szptr = arena_xalloc(size_t, arena);
+    size *szptr = arena_xalloc(size, arena);
     *szptr = 12;
-    printf("szptr = %p, *szptr = %zu\n", szptr, *szptr);
+    printf("szptr = %p, *szptr = %td\n", szptr, *szptr);
     arena_print(arena);
     
     /* 
@@ -106,7 +92,7 @@ void arena_main(const LString args[], Size count, Arena *arena)
         [0x0]   char
         [0x1]   <padding>
         ...     -
-        [0x8]   size_t
+        [0x8]   size
         ...     -
         [0xf]   -
         [0xa]   short
@@ -118,8 +104,9 @@ void arena_main(const LString args[], Size count, Arena *arena)
     printf("hptr = %p, *hptr = %hi\n", hptr, *hptr);
     arena_print(arena);
     
-    char *cstr = arena_xalloc(char, arena, 8);
-    memcpy(cstr, "Hi mom!", sizeof("Hi mom!") - 1);
+    LString msg = lstr_literal("Hi mom!");
+    char  *cstr = arena_xalloc(char, arena, 8);
+    memcpy(cstr, msg.data, msg.length);
     cstr[7] = '\0';
     printf("cstr = %p, cstr = \"%s\"\n", cstr, cstr);
     arena_print(arena);
@@ -131,20 +118,21 @@ void arena_main(const LString args[], Size count, Arena *arena)
     arena_print(arena);
 }
 
-static void default_error_handler(const char *msg, Size req, void *ctx)
+static void s_errorfn(const char *msg, size req, void *ctx)
 {
     cast(void, ctx);
-    fprintf(stderr, "[FATAL]: %s (requested %zu bytes)\n", msg, req);
+    fprintf(stderr, "[FATAL]: %s (requested %td bytes)\n", msg, req);
+    fflush(stderr);
     exit(EXIT_FAILURE);
 }
 
-static Arena *arena__new(Size cap, uint8_t flags, ErrorFn fn, void *ctx)
+static Arena *s_new(size cap, uint8_t flags, ErrorFn fn, void *ctx)
 {
     Arena *self = fam_new(Arena, self->buffer, cap);
     if (self != nullptr) {
         self->next     = nullptr;
         self->flags    = flags;
-        self->handler  = (fn != nullptr) ? fn  : &default_error_handler;
+        self->handler  = (fn != nullptr) ? fn  : &s_errorfn;
         self->context  = (fn != nullptr) ? ctx : nullptr;
         self->active   = 0;
         self->capacity = cap;
@@ -154,21 +142,22 @@ static Arena *arena__new(Size cap, uint8_t flags, ErrorFn fn, void *ctx)
     return self;
 }
 
-static Arena *arena__chain(Arena *parent, Size cap)
+static Arena *s_chain(Arena *parent, size cap)
 {
-    Arena *child = arena__new(cap, parent->flags, parent->handler, parent->context);
+    Arena *child = s_new(cap, parent->flags, parent->handler, parent->context);
     parent->next = child;
     return child;
 }
 
-Arena *arena_new(Size cap, uint8_t flags, ErrorFn fn, void *ctx)
+Arena *arena_new(size cap, uint8_t flags, ErrorFn fn, void *ctx)
 {
-    Arena *self = arena__new(cap, flags, fn, ctx);
+    Arena *self = s_new(cap, flags, fn, ctx);
     if (self == nullptr) {
         if (flags & ARENA_NOTHROW)
             return nullptr;
-        else
-            fn("Failed to allocate new Arena", cap, ctx);
+        if (fn == nullptr)
+            fn = &s_errorfn;
+        fn("Failed to allocate new Arena", cap, ctx);
     }
     return self;
 }
@@ -210,27 +199,27 @@ void arena_free(Arena **self)
     *self = nullptr;
 }
 
-static Size next_pow2(Size n)
+static size next_pow2(size n)
 {
-    Size p2 = 1;
+    size p2 = 1;
     while (p2 < n)
         p2 *= 2;
     return p2;
 }
 
-void *arena_alloc(Arena *self, Size sz, Size align)
+void *arena_alloc(Arena *self, size sz, size align)
 {
     Arena *it  = self;
-    Size   pad = ARENA_GETPADDING(align, it->active);
+    size   pad = ARENA_GETPADDING(align, it->active);
     
     // Try to find or chain an arena that can accomodate our allocation.
     while (it->active + sz + pad > it->capacity) {
         if (it->next == nullptr) {
-            Size   ncap = next_pow2(it->active + sz + pad);
+            size ncap = next_pow2(it->active + sz + pad);
 #if DEBUG_MEMERR == DEBUG_MEMERR_ALLOC
             Arena *next = nullptr;
 #else
-            Arena *next = arena__chain(it, ncap);
+            Arena *next = s_chain(it, ncap);
 #endif
             if (next == nullptr) {
                 if (it->flags & ARENA_NOTHROW)
@@ -242,11 +231,11 @@ void *arena_alloc(Arena *self, Size sz, Size align)
         }
         it  = it->next;
         pad = ARENA_GETPADDING(align, it->active);
-        DEBUG_PRINTFLN("sz = %zu, align = %zu, pad = %zu", sz, align, pad);
+        DEBUG_PRINTFLN("sz = %td, align = %td, pad = %td", sz, align, pad);
     }
 
-    Byte *data  = &it->buffer[it->active + pad];
-    it->active += sz + pad;
+    uint8_t *data  = &it->buffer[it->active + pad];
+    it->active    += sz + pad;
     return cast(void*, data);
 }
 
@@ -256,7 +245,4 @@ void arena_print(const Arena *self)
     for (const Arena *it = self; it != nullptr; ++depth, it = it->next) {
         printf("[%i] " ARENA_FMTSTRLN, depth, ARENA_FMTARGS(it));
     }
-#ifdef DEBUG_USE_PRINT
-    printf("\n");
-#endif
 }
