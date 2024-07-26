@@ -16,10 +16,21 @@
 typedef struct Arena Arena;
 typedef void (*ErrorFn)(const char *msg, size sz, void *ctx);
 
+// Disable zero initialization.
 #define ARENA_NOZERO            0x1
+
+// Disable calling the error handler. Allows [re]alloc to return `nullptr`.
 #define ARENA_NOTHROW           0x2
-#define ARENA_NODEFAULTFLAGS    (ARENA_NOZERO | ARENA_NOTHROW)
+
+// Disable determining if a given pointer does not need to be alloc'd again,
+#define ARENA_NOSMARTREALLOC    0x4
+#define ARENA_NODEFAULTFLAGS    (ARENA_NOZERO | ARENA_NOTHROW | ARENA_NOSMARTREALLOC)
 #define ARENA_DEFAULTFLAGS      0x0
+#define BITFLAG_IS_ON(n, flag)  ((n) & (flag))
+#define BITFLAG_IS_OFF(n, flag) (!BITFLAG_IS_ON(n, flag))
+
+#define DYNARRAY_INIT           32
+#define DYNARRAY_GROW(cap)      ((cap) < DYNARRAY_INIT) ? DYNARRAY_INIT : (cap) * 2
 
 struct Arena {
     Arena  *next;
@@ -28,7 +39,7 @@ struct Arena {
     uint8_t flags;    // Don't put right above `buffer` to ensure alignment.
     size    active;   // Number of bytes currently being used.
     size    capacity; // Number of bytes we allocated in total.
-    byte    buffer[]; // C99 Flexible array member.
+    byte    buffer[]; // C99 Flexible array member. NOT valid in standard C++!
 };
 
 Arena  *arena_rawnew(size cap, uint8_t flags, ErrorFn fn, void *ctx);
@@ -36,9 +47,11 @@ void    arena_set_flags(Arena *self, uint8_t flags);
 void    arena_clear_flags(Arena *self, uint8_t flags);
 void    arena_reset(Arena *self);
 void    arena_free(Arena **self);
+size    arena_count_active(const Arena *self);
+size    arena_count_capacity(const Arena *self);
 void    arena_print(const Arena *self);
 void   *arena_rawalloc(Arena *self, size rawsz, size align);
-void   *arena_rawrealloc(Arena *self, void *prev, size oldsz, size newsz, size align);
+void   *arena_rawrealloc(Arena *self, void *ptr, size oldsz, size newsz, size align);
 void    arena_main(const LString args[], size count, Arena *arena);
 
 #define arena__xselect5(a, b, c, d, e, ...)     e
@@ -50,18 +63,19 @@ void    arena_main(const LString args[], size count, Arena *arena);
 
 // ... = len [, flags [, fn, ctx ] ] OR
 // ... = len [, fn, ctx ]
-#define arena_new(...)                                                        \
-    arena__xselect5(                                                          \
-        __VA_ARGS__,                                                          \
-        arena__xnew4,                                                         \
-        arena__xnew3,                                                         \
-        arena__xnew2,                                                         \
-        arena__xnew1,                                                         \
+#define arena_new(...)                                                         \
+    arena__xselect5(                                                           \
+        __VA_ARGS__,                                                           \
+        arena__xnew4,                                                          \
+        arena__xnew3,                                                          \
+        arena__xnew2,                                                          \
+        arena__xnew1,                                                          \
     )(__VA_ARGS__)
 
 
 #define arena__xselect4(a, b, c, d, ...)    d
-#define arena__xalloc4(T, a, n, ex) cast(T*, arena_rawalloc(a, sizeof(T) * (n) + (ex), alignof(T)))
+#define arena__xrawalloc(T, a, sz)  cast(T*, arena_rawalloc(a, sz, alignof(T)))
+#define arena__xalloc4(T, a, n, ex) arena__xrawalloc(T, a, sizeof(T) * (n) + (ex))
 #define arena__xalloc3(T, a, n)     arena__xalloc4(T, a, n, 0)
 #define arena__xalloc2(T, a)        arena__xalloc3(T, a, 1)
 
@@ -73,3 +87,8 @@ void    arena_main(const LString args[], size count, Arena *arena);
         arena__xalloc3,                                                        \
         arena__xalloc2                                                         \
     )(T, __VA_ARGS__)
+
+#define arena__xrawrealloc(T, a, p, oldsz, newsz) \
+    cast(T*, arena_rawrealloc(a, p, oldsz, newsz, alignof(T)))
+#define arena_realloc(T, a, ptr, oldn, newn) \
+    arena__xrawrealloc(T, a, ptr, sizeof(T) * (oldn), sizeof(T) * (newn))

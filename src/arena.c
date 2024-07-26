@@ -1,8 +1,5 @@
 #include "arena.h"
 
-#define BITFLAG_IS_ON(n, flag)  ((n) & (flag))
-#define BITFLAG_IS_OFF(n, flag) (!BITFLAG_IS_ON(n, flag))
-
 #define DEBUG_MEMERR_NEW        1
 #define DEBUG_MEMERR_ALLOC      2
 #if DEBUG_MEMERR == DEBUG_MEMERR_NEW
@@ -224,6 +221,7 @@ void arena_set_flags(Arena *self, uint8_t flags)
     for (Arena *it = self; it != nullptr; it = it->next) {
         it->flags |= flags & ARENA_NOZERO;
         it->flags |= flags & ARENA_NOTHROW;
+        it->flags |= flags & ARENA_NOSMARTREALLOC;
     }
 }
 
@@ -232,13 +230,33 @@ void arena_clear_flags(Arena *self, uint8_t flags)
     for (Arena *it = self; it != nullptr; it = it->next) {
         it->flags ^= flags & ARENA_NOZERO;
         it->flags ^= flags & ARENA_NOTHROW;
+        it->flags ^= flags & ARENA_NOSMARTREALLOC;
     }
+}
+
+size arena_count_active(const Arena *self)
+{
+    size n = 0;    
+    for (const Arena *it = self; it != nullptr; it = it->next)
+        n += it->active;
+    return n;
+}
+
+size arena_count_capacity(const Arena *self)
+{
+    size cap = 0;
+    for (const Arena *it = self; it != nullptr; it = it->next)
+        cap += it->capacity;
+    return cap;
 }
 
 void arena_reset(Arena *self)
 {
 #ifdef DEBUG_USE_PRINT
     int depth = 1;
+    DEBUG_PRINTFLN("active=%td, capacity=%td",
+                   arena_count_active(self),
+                   arena_count_capacity(self));
 #endif
     for (Arena *it = self; it != nullptr; it = it->next) {
         DEBUG_PRINTFLN("[%i] Reset " ARENA_FMTSTR, depth++, ARENA_FMTARGS(it));
@@ -250,6 +268,9 @@ void arena_free(Arena **self)
 {
 #ifdef DEBUG_USE_PRINT
     int depth = 1;
+    DEBUG_PRINTFLN("active=%td, capacity=%td",
+                   arena_count_active(*self),
+                   arena_count_capacity(*self));
 #endif
     for (Arena *it = *self, *next; it != nullptr; it = next) {
         DEBUG_PRINTFLN("[%i] Free " ARENA_FMTSTR, depth++, ARENA_FMTARGS(it));
@@ -296,16 +317,47 @@ void *arena_rawalloc(Arena *self, size rawsz, size align)
     return cast(void*, data);
 }
 
-void *arena_rawrealloc(Arena *self, void *prev, size oldsz, size newsz, size align)
+bool get_last_write(Arena *self, void *hint, size sz, Arena **out)
 {
-    // Don't waste our time!
-    if (oldsz >= newsz)
-        return prev;
+    for (Arena *it = self; it != nullptr; it = it->next) {
+        size base_i = self->active - sz;
+        // Base index of last allocation is in range for this Arena?
+        if (0 <= base_i && base_i < it->capacity) {
+            // Last allocation is exactly the same as `hint`?
+            void *ptr = &it->buffer[base_i];
+            if (ptr == hint) {
+                *out = it;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void *arena_rawrealloc(Arena *self, void *ptr, size oldsz, size newsz, size align)
+{
+    if (BITFLAG_IS_OFF(self->flags, ARENA_NOSMARTREALLOC)) {
+        Arena *tgt;
+        if (ptr != nullptr && get_last_write(self, ptr, oldsz, &tgt)) {
+            size reqsz = newsz - oldsz;
+            // Our simple resize can fit in the given Arena?
+            if (tgt->active + reqsz <= tgt->capacity) {
+                tgt->active += reqsz;
+                return ptr;
+            }
+        }
+    }
+
+    // TODO: Implement some sort of rudimentary freeing system?
+    if (oldsz >= newsz) {
+        return ptr;
+    }
+
     // NOTE: Only receive `nullptr` when `ARENA_NOTHROW` is on.
     void *next = arena_rawalloc(self, newsz, align);
     if (next == nullptr)
         return nullptr;
-    return memcpy(next, prev, oldsz);
+    return memcpy(next, ptr, oldsz);
 }
 
 void arena_print(const Arena *self)

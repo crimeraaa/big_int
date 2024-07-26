@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdalign.h>   //  alignof
+#include <stdbool.h>    //  bool
 #include <stdlib.h>     //  malloc family
 #include <stdio.h>      //  printf family
 #include <stdint.h>     //  [u]int family
@@ -21,10 +22,13 @@ C4996
 
 #ifdef __cplusplus
 #   define cast(T, expr)        (static_cast<T>(expr))
+// https://news.ycombinator.com/item?id=18438288
+#   define coerce(T, expr)      (reinterpret_cast<T>(expr))
 #   define cmp_literal(T, ...)  {__VA_ARGS__}
 #else   // __cplusplus not defined.
 #   define nullptr              NULL
 #   define cast(T, expr)        ((T)(expr))
+#   define coerce(T, expr)      ((T)(expr))
 #   define cmp_literal(T, ...)  (T){__VA_ARGS__}
 #endif  // __cplusplus
 
@@ -49,6 +53,10 @@ C4996
 #define fam_new(T, memb, n)         cast(T*, malloc(fam_sizeof(T, memb, n)))
 #define fam_free(T, memb, ptr, n)   free(cast(void*, ptr))
 
+#define unused(expr)                cast(void, expr)
+#define unused2(x, y)               unused(x), unused(y)
+#define unused3(x, y, z)            unused(x), unused2(y, z)
+
 typedef   uint8_t byte;
 typedef ptrdiff_t size;
 
@@ -59,3 +67,8 @@ typedef struct LString {
 
 #define lstr_make(s, n) cmp_literal(LString, s, n)
 #define lstr_literal(s) lstr_make(s, array_countof(s) - 1)
+
+typedef struct Buffer {
+    size length;    // Number of desired characters, sans nul terminator.
+    char data[];    // Read-write buffer.
+} Buffer;
