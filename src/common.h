@@ -32,6 +32,10 @@ C4996
 #   define cmp_literal(T, ...)  (T){__VA_ARGS__}
 #endif  // __cplusplus
 
+#define fprintfln(stream, fmt, ...) fprintf(stream, fmt "\n", __VA_ARGS__)
+#define fprintln(stream, s)         fprintfln(stream, "%s", s)
+#define printfln(fmt, ...)          fprintfln(stdout, fmt, __VA_ARGS__)
+#define println(s)                  printfln("%s", s)
 #define eprintf(fmt, ...)           fprintf(stderr, fmt, __VA_ARGS__)
 #define eprintfln(fmt, ...)         eprintf(fmt "\n", __VA_ARGS__)
 #define eprintln(s)                 eprintfln("%s", s)
@@ -47,9 +51,9 @@ C4996
 #endif  // DEBUG_USE_PRINT
 
 #define array_literal(T, ...)       cmp_literal(T[], __VA_ARGS__)
-#define array_sizeof(T, N)          (sizeof((T)[0]) * (N))
+#define array_sizeof(T, N)          (sizeof(T) * (N))
 #define array_countof(T)            (sizeof(T) / sizeof((T)[0]))
-#define fam_sizeof(T, memb, n)      (sizeof(T) + array_sizeof(memb, n))
+#define fam_sizeof(T, memb, n)      (sizeof(T) + sizeof(memb) * (n))
 #define fam_new(T, memb, n)         cast(T*, malloc(fam_sizeof(T, memb, n)))
 #define fam_free(T, memb, ptr, n)   free(cast(void*, ptr))
 
@@ -57,8 +61,8 @@ C4996
 #define unused2(x, y)               unused(x), unused(y)
 #define unused3(x, y, z)            unused(x), unused2(y, z)
 
-typedef   uint8_t byte;
-typedef ptrdiff_t size;
+typedef unsigned char byte;
+typedef     ptrdiff_t size;
 
 typedef struct LString {
     const char *data;   // Read-only and non-owning view to some buffer.

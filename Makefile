@@ -23,7 +23,6 @@ COMMON_FLAGS := -nologo -W4 -WX -permissive- -Zc:preprocessor \
 # 
 # Debug macros:
 # DEBUG_USE_PRINT
-# DEBUG_MEMERR={1,2}
 # DEBUG_USE_LONGJMP
 DEBUG_FLAGS := -Od -Zi -Fd:"$(DIR_BIN)/" -fsanitize=address -DDEBUG_USE_PRINT
 
