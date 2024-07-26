@@ -5,12 +5,12 @@
 
 static void test_arena(int argc, const char *argv[], Arena *arena)
 {
-    // Arena   *arena = arena_new(64, ARENA_DEFAULT, nullptr, nullptr);
-    LString *args = arena_xalloc(LString, arena, argc);
+    // Arena   *arena = arena_rawinit(64, ARENA_DEFAULT, nullptr, nullptr);
+    LString *args = arena_alloc(LString, arena, argc);
     arena_print(arena);
     for (int i = 0; i < argc; i++) {
         size  len  = strlen(argv[i]);
-        char *data = arena_xalloc(char, arena, len + 1);
+        char *data = arena_alloc(char, arena, len + 1);
         data[len]  = '\0';
         args[i].data   = memcpy(data, argv[i], len);
         args[i].length = len;
@@ -36,9 +36,9 @@ int main(int argc, const char *argv[])
 #ifdef DEBUG_USE_LONGJMP
     jmp_buf err;
     if (setjmp(err) == 0) {
-        arena = arena_xnew(128, &handle_error, &err);
+        arena = arena_new(128, &handle_error, &err);
 #else   // DEBUG_USE_LONGJMP not defined.
-        arena = arena_xnew(128);
+        arena = arena_new(128);
 #endif  // DEBUG_USE_LONGJMP
 
         test_arena(argc, argv, arena);

@@ -11,8 +11,9 @@ C4200
     nonstandard extension used: zero-sized array in struct/union
     Even though flexible array members are part of the C11 standard...
 C4996
-    'fopen': This function or variable may be unsafe. Consider using fopen_s
+    '<func>': This function or variable may be unsafe. Consider using '<func>_s'
     instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS.
+    Yeah, thanks but no thanks!
  */
 #ifdef _MSC_VER
 #   pragma warning( disable : 4200 4996 )
@@ -32,13 +33,13 @@ C4996
 #define eprintln(s)                 eprintfln("%s", s)
 
 #ifdef DEBUG_USE_PRINT
-#   define DEBUG_PRINTF(fmt, ...)   eprintf("%-12s: " fmt, __func__, __VA_ARGS__)
-#   define DEBUG_PRINTLN(msg)       DEBUG_PRINTFLN("%s", msg)
+#   define DEBUG_PRINTF(fmt, ...)   eprintf("[DEBUG] %-12s: " fmt, __func__, __VA_ARGS__)
 #   define DEBUG_PRINTFLN(fmt, ...) DEBUG_PRINTF(fmt "\n", __VA_ARGS__)
+#   define DEBUG_PRINTLN(msg)       DEBUG_PRINTFLN("%s", msg)
 #else   // DEBUG_USE_PRINT not defined.
 #   define DEBUG_PRINTF(fmt, ...)
-#   define DEBUG_PRINTLN(msg)
 #   define DEBUG_PRINTFLN(fmt, ...)
+#   define DEBUG_PRINTLN(msg)
 #endif  // DEBUG_USE_PRINT
 
 #define array_literal(T, ...)       cmp_literal(T[], __VA_ARGS__)
@@ -46,6 +47,7 @@ C4996
 #define array_countof(T)            (sizeof(T) / sizeof((T)[0]))
 #define fam_sizeof(T, memb, n)      (sizeof(T) + array_sizeof(memb, n))
 #define fam_new(T, memb, n)         cast(T*, malloc(fam_sizeof(T, memb, n)))
+#define fam_free(T, memb, ptr, n)   free(cast(void*, ptr))
 
 typedef   uint8_t byte;
 typedef ptrdiff_t size;
