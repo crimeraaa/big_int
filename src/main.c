@@ -69,15 +69,14 @@ typedef struct Buffer {
     size  capacity;
 } Buffer;
 
-static const char *context_readline(StringView *out, FILE *stream)
+static const char *read_line(StringView *out, FILE *stream, Arena *scratch)
 {
     static char init[] = {'\0'};
     Buffer b;
 
     // It's better to use a singular arena for a single dynamic buffer so that
     // we can guarantee resizes will always just be incrementing counts.
-    context_arena = &scratch_arena;
-    context_reset();
+    arena_reset(scratch);
     
     b.data     = init;
     b.length   = 0;
@@ -87,29 +86,20 @@ static const char *context_readline(StringView *out, FILE *stream)
         if (ch == EOF || ch == '\n')
             break;
         // Always save at least the last valid spot for the nul char.
-        if (b.length >= b.capacity - 1) {
-            arena_grow_array(context_arena, &b);
-        }
-        b.data[b.length++] = cast(char, ch);
+        *dynarray_push(&b, scratch) = cast(char, ch);
     }
-    // Only allocate non-growable items of a known size to the main arena.
-    context_arena = &main_arena;
-
     // NOTE: Assumes that the very last line has newline right before EOF.
     if (feof(stream)) {
         *out = lstr_literal("(EOF)");
         return nullptr;
     } else {
-        if (b.data) {
-            b.data[b.length] = '\0';
-        }
         out->data   = b.data;
         out->length = b.length;
         return b.data;
     }
 }
 
-static StringList *context_readfile(const char *name)
+static StringList *read_file(const char *name)
 { 
     FILE *fp = fopen(name, "r");
     if (!fp) {
@@ -120,7 +110,7 @@ static StringList *context_readfile(const char *name)
     StringList  *head = nullptr;
     StringList **tail = &head;
     StringView   line;
-    while (context_readline(&line, fp)) {
+    while (read_line(&line, fp, &scratch_arena)) {
         const size  ex   = array_sizeof(head->data[0], line.length + 1);
         StringList *next = context_alloc(StringList, 1, ex);
         next->next       = *tail;
@@ -141,21 +131,17 @@ static StringList *context_readfile(const char *name)
 I32Array fibonacci(i32 max, Arena *scratch)
 {
     static i32 init[] = {0, 1};
-    I32Array   fib    = {0};
+    I32Array   fib;
 
     fib.data     = init;
     fib.length   = array_countof(init); 
     fib.capacity = fib.length;
-    
     for (;;) {
         i32 a = fib.data[fib.length - 2];
         i32 b = fib.data[fib.length - 1];
         if (a + b > max)
             break;
-        if (fib.length >= fib.capacity) {
-            arena_grow_array(scratch, &fib);
-        }
-        fib.data[fib.length++] = a + b;
+        *dynarray_push(&fib, scratch) = a + b;
         
     }
     return fib;
@@ -173,7 +159,7 @@ do {                                                                           \
 static void handle_error(const char *msg, size sz, void *ctx)
 {
     jmp_buf *e = cast_ptr(jmp_buf, ctx);
-    fprintf(stderr, "[FATAL]: %s (requested %td bytes)\n", msg, sz);
+    eprintfln("[FATAL] %s (requested %td bytes)\n", msg, sz);
     longjmp(*e, 1);
 }
 
@@ -186,11 +172,13 @@ int main(int argc, const char *argv[])
     if (setjmp(err) == 0) {
         arena_init(/* self  */  &main_arena,
                    /* cap   */  REGION_DEFAULTSIZE,
+                   /* flags */  ARENA_FDEFAULT ^ ARENA_FZEROINIT,
                    /* fn    */  &handle_error,
                    /* ctx   */  &err);
 
         arena_init(/* self  */  &scratch_arena,
                    /* cap   */  256,
+                   /* flags */  ARENA_FDEFAULT ^ ARENA_FZEROINIT,
                    /* fn    */  &handle_error,
                    /* ctx   */  &err);
 #else   // DEBUG_USE_LONGJMP not defined.
@@ -202,12 +190,27 @@ int main(int argc, const char *argv[])
         DEBUG_MARK(famstring_test(argc, argv));
         DEBUG_MARK({
             int i = 1;
-            for (const StringList *it = context_readfile(TEST_FILENAME);
+            for (const StringList *it = read_file(TEST_FILENAME);
                  it != nullptr;
                  it = it->next)
             {
                 printfln("%02i: %s", i++, it->data);
             }
+            arena_print(&scratch_arena);
+            arena_print(&main_arena);
+        });
+        
+        DEBUG_MARK({
+            context_arena = &scratch_arena;
+            context_reset();
+            const I32Array ia = fibonacci(100, context_arena);
+            for (size i = 0; i < ia.length; i++) {
+                if (0 < i && i < ia.length) {
+                    printf(", ");
+                }
+                printf("%i", ia.data[i]);
+            }
+            println("");
         });
 
         arena_free(&scratch_arena);

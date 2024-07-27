@@ -174,24 +174,24 @@ static void align_test(Arena *scratch)
 void arena_main(const StringView args[], size count, Arena *arena)
 {
     Arena scratch;
-    dprintln("===NEW SCRATCH===");
+    eprintln("===NEW SCRATCH===");
     arena_init(/*  self */  &scratch,
                /*   cap */  128,
                /* flags */  ARENA_FALIGN);
     arena_print(&scratch);
 
-    dprintln("===XALLOC_TEST()===");
+    eprintln("===XALLOC_TEST()===");
     arena_reset(&scratch);
     xalloc_test(&scratch);
     arena_print(&scratch);
 
-    dprintln("===ALIGN_TEST()===");
+    eprintln("===ALIGN_TEST()===");
     arena_reset(&scratch);
     align_test(&scratch);
     arena_print(&scratch);
 
     arena_free(&scratch);
-    dprintln("===FREE SCRATCH===");
+    eprintln("===FREE SCRATCH===");
     for (size i = 0; i < count; i++) {
         printf("args[%td](data=\"%s\", length=%td)\n",
                i, args[i].data, args[i].length);
@@ -204,7 +204,7 @@ void arena_main(const StringView args[], size count, Arena *arena)
 static void exit_errorfn(const char *msg, size req, void *ctx)
 {
     unused(ctx);
-    eprintfln("[FATAL]: %s (requested %td bytes)", msg, req);
+    eprintfln("[FATAL] %s (requested %td bytes)", msg, req);
     fflush(stderr);
     exit(EXIT_FAILURE);
 }
@@ -298,6 +298,12 @@ static size next_pow2(size n)
     return p2;
 }
 
+// https://en.wikipedia.org/wiki/Data_structure_alignment#Computing_padding
+static size get_padding(size align, size offset)
+{
+    return align - (offset % align) % align;
+}
+
 void *arena_rawalloc(Arena *self, size rawsz, size align)
 {
     // Try to find or chain a new arena that can accomodate our allocation.
@@ -307,7 +313,7 @@ void *arena_rawalloc(Arena *self, size rawsz, size align)
         size active = region_active(it);
         size cap    = region_capacity(it);
         if (BITFLAG_ON(self->flags, ARENA_FALIGN))
-            pad = ARENA_GETPADDING(align, active);
+            pad = get_padding(align, active);
         // Requested size will be in range of the Region?
         if (active + rawsz + pad <= cap)
             break;
@@ -381,6 +387,7 @@ void *arena_rawgrow_array(Arena *self, void *slice, size tsize, size align)
     memcpy(&replica, slice, sizeof(replica));
     
     // Possibly passed a wrong struct?
+    // NOTE: No guarantee that this check will work!
     if (!(0 <= replica.length && replica.length <= replica.capacity
         && 0 <= replica.capacity))
     {
@@ -391,7 +398,7 @@ void *arena_rawgrow_array(Arena *self, void *slice, size tsize, size align)
     if (replica.capacity == 0)
         replica.capacity = 1;
     size  oldsz       = tsize * replica.capacity;
-    size  newsz       = tsize * dynarray_growcap(replica.capacity);
+    size  newsz       = oldsz * 2;
     void *newdata     = arena_rawrealloc(self, replica.data, oldsz, newsz, align);
     replica.capacity *= 2;
     

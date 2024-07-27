@@ -102,8 +102,9 @@ typedef struct I32Array {
     size capacity;
 } I32Array;
 
+// Used mainly for `arena_rawgrow_array()`.
 typedef struct RawBuffer {
-    void *data;
+    void *data;     // Must be convertible to any other data pointer.
     size  length;
     size  capacity;
 } RawBuffer;

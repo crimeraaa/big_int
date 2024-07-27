@@ -6,12 +6,6 @@
 #define REGION_FMTARGS(r)   region_active(r), region_capacity(r)
 #define REGION_DEFAULTSIZE  (1024 * 8)
 
-// https://en.wikipedia.org/wiki/Data_structure_alignment#Computing_padding
-#define ARENA_GETPADDING(align, offset)                                        \
-(                                                                              \
-    ( (align) - ( (offset) % (align) ) ) % (align)                             \
-)
-
 /* 
 Overview
     Bit flags allow us to combine multiple boolean flags into a single unsigned
@@ -38,9 +32,6 @@ enum {
 
 #define BITFLAG_ON(n, flag)     ((n) & (flag))
 #define BITFLAG_OFF(n, flag)    (!BITFLAG_ON(n, flag))
-
-#define DYNARRAY_STARTCAP       32
-#define dynarray_growcap(n)     ((n) < DYNARRAY_STARTCAP) ? DYNARRAY_STARTCAP : (n) * 2
 
 // https://github.com/tsoding/arena/blob/master/arena.h
 typedef struct Region Region;
@@ -88,12 +79,6 @@ void    arena_main(const StringView args[], size count, Arena *arena);
  */
 void   *arena_rawgrow_array(Arena *self, void *slice, size tsize, size align);
 
-// Unfortunately we cannot do `alignof((s)->data[0])`, so align is fixed.
-#define arena_grow_array(a, s) arena_rawgrow_array(a, \
-                                                   s, \
-                                                   sizeof((s)->data[0]), \
-                                                   alignof(RawBuffer))
-
 #define arena__xinit5(a, n, flg, fn, ctx) arena_rawinit(a, n, flg, fn, ctx)
 #define arena__xinit4(a, n, fn, ctx) arena__xinit5(a, n, ARENA_FDEFAULT, fn, ctx)
 #define arena__xinit3(a, n, flg)    arena__xinit5(a, n, flg, nullptr, nullptr)
@@ -132,3 +117,18 @@ void   *arena_rawgrow_array(Arena *self, void *slice, size tsize, size align);
     cast_ptr(T, arena_rawrealloc(a, p, oldsz, newsz, alignof(T)))
 #define arena_realloc(T, a, ptr, oldn, newn) \
     arena__xrawrealloc(T, a, ptr, sizeof(T) * (oldn), sizeof(T) * (newn))
+
+// Unfortunately we cannot do `alignof((s)->data[0])`, so align is fixed.
+#define arena_grow_array(a, s)                                                 \
+(                                                                              \
+    arena_rawgrow_array(a, s, sizeof((s)->data[0]), alignof(RawBuffer))        \
+)
+
+// Checks if we need to grow and returns a pointer to the next element.
+// https://nullprogram.com/blog/2023/10/05/
+#define dynarray_push(da, arena)                                               \
+(                                                                              \
+    ((da)->length >= (da)->capacity)                                           \
+        ? arena_grow_array(arena, da), (da)->data + (da)->length++             \
+        : (da)->data + (da)->length++                                          \
+)
