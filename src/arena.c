@@ -2,7 +2,7 @@
 
 Region *region_new(size cap)
 {
-    Region *r = cast(Region*, malloc(fam_sizeof(*r, r->buffer[0], cap)));
+    Region *r = cast_ptr(Region, malloc(fam_sizeof(*r, r->buffer[0], cap)));
     if (r) {
         r->next = nullptr;
         r->free = r->buffer;
@@ -13,7 +13,18 @@ Region *region_new(size cap)
 
 void region_free(Region *r)
 {
-    fam_free(Region, byte, r, r->capacity);
+    // C Standard Library does bookkeeping for us.
+    free(cast_ptr(void, r));
+}
+
+size region_active(const Region *r)
+{
+    return r->free - r->buffer;
+}
+
+size region_capacity(const Region *r)
+{
+    return r->end - r->buffer;
 }
 
 static void xalloc_test(Arena *scratch)
@@ -124,7 +135,7 @@ static void align_test(Arena *scratch)
         [0x19]  '\0'
         [0x1a]  <inactive>
      */
-    LString msg  = lstr_literal("Hi mom!");
+    StringView msg  = lstr_literal("Hi mom!");
     char   *cstr = arena_alloc(char, scratch, 8);
     memcpy(cstr, msg.data, msg.length);
     cstr[7] = '\0';
@@ -160,23 +171,27 @@ static void align_test(Arena *scratch)
     arena_print(scratch);
 }
 
-void arena_main(const LString args[], size count, Arena *arena)
+void arena_main(const StringView args[], size count, Arena *arena)
 {
     Arena scratch;
-    DEBUG_PRINTLN("===NEW SCRATCH===");
-    arena_init(&scratch, 128);
+    dprintln("===NEW SCRATCH===");
+    arena_init(/*  self */  &scratch,
+               /*   cap */  128,
+               /* flags */  ARENA_FALIGN);
     arena_print(&scratch);
 
-    DEBUG_PRINTLN("===XALLOC_TEST()===");
+    dprintln("===XALLOC_TEST()===");
+    arena_reset(&scratch);
     xalloc_test(&scratch);
     arena_print(&scratch);
 
-    DEBUG_PRINTLN("===ALIGN_TEST()===");
+    dprintln("===ALIGN_TEST()===");
+    arena_reset(&scratch);
     align_test(&scratch);
     arena_print(&scratch);
 
     arena_free(&scratch);
-    DEBUG_PRINTLN("===FREE SCRATCH===");
+    dprintln("===FREE SCRATCH===");
     for (size i = 0; i < count; i++) {
         printf("args[%td](data=\"%s\", length=%td)\n",
                i, args[i].data, args[i].length);
@@ -188,54 +203,57 @@ void arena_main(const LString args[], size count, Arena *arena)
 // By default we choose to report the bad allocation and immediately abort.
 static void exit_errorfn(const char *msg, size req, void *ctx)
 {
-    cast(void, ctx);
+    unused(ctx);
     eprintfln("[FATAL]: %s (requested %td bytes)", msg, req);
     fflush(stderr);
     exit(EXIT_FAILURE);
 }
 
-bool arena_rawinit(Arena *self, size cap, uint8_t flags, ErrorFn fn, void *ctx)
+static void arena_throw(Arena *self, const char *msg, size cap)
+{
+    if (BITFLAG_ON(self->flags, ARENA_FTHROW))
+        self->handler(msg, cap, self->context);
+}
+
+bool arena_rawinit(Arena *self, size cap, u8 flags, ErrorFn fn, void *ctx)
 {
     Region *r     = region_new(cap);
-    self->handler = (fn != nullptr) ? fn : &exit_errorfn;
-    self->context = (fn != nullptr) ? ctx : nullptr;
+    self->handler = (fn) ? fn : &exit_errorfn;
+    self->context = (fn) ? ctx : nullptr;
     self->begin   = r;
     self->end     = r;
     self->flags   = flags;
 
-    if (r == nullptr) {
-        if (BITFLAG_ON(flags, ARENA_NOTHROW))
-            return false;
-        else
-            self->handler("Failed to allocate new Region", cap, self->context);
-        return false; // Unreachable
+    if (!r) {
+        arena_throw(self, "Failed to allocate new Region", cap);
+        return false;
     }
-    if (BITFLAG_OFF(flags, ARENA_NOZERO))
+    if (BITFLAG_ON(flags, ARENA_FZEROINIT))
         memset(r->buffer, 0, cap);
     return true;
 }
 
-void arena_set_flags(Arena *self, uint8_t flags)
+void arena_set_flags(Arena *self, u8 flags)
 {
-    self->flags |= flags & ARENA_NOZERO;
-    self->flags |= flags & ARENA_NOTHROW;
-    self->flags |= flags & ARENA_NOPADDING;
-    self->flags |= flags & ARENA_NOSMARTREALLOC;
+    self->flags |= flags & ARENA_FZEROINIT;
+    self->flags |= flags & ARENA_FTHROW;
+    self->flags |= flags & ARENA_FALIGN;
+    self->flags |= flags & ARENA_FSMARTREALLOC;
 }
 
-void arena_clear_flags(Arena *self, uint8_t flags)
+void arena_clear_flags(Arena *self, u8 flags)
 {
-    self->flags ^= flags & ARENA_NOZERO;
-    self->flags ^= flags & ARENA_NOTHROW;
-    self->flags ^= flags & ARENA_NOPADDING;
-    self->flags ^= flags & ARENA_NOSMARTREALLOC;
+    self->flags ^= flags & ARENA_FZEROINIT;
+    self->flags ^= flags & ARENA_FTHROW;
+    self->flags ^= flags & ARENA_FALIGN;
+    self->flags ^= flags & ARENA_FSMARTREALLOC;
 }
 
 size arena_active(const Arena *self)
 {
     size n = 0;    
     for (const Region *it = self->begin; it != nullptr; it = it->next) {
-        n += REGION_ACTIVE(it);
+        n += region_active(it);
     }
     return n;
 }
@@ -244,7 +262,7 @@ size arena_capacity(const Arena *self)
 {
     size cap = 0;
     for (const Region *it = self->begin; it != nullptr; it = it->next) {
-        cap += REGION_CAPACITY(it);
+        cap += region_capacity(it);
     }
     return cap;
 }
@@ -260,11 +278,13 @@ void arena_free(Arena *self)
 {
 #ifdef DEBUG_USE_PRINT
     int depth = 1;
-    DEBUG_PRINTFLN("active=%td, capacity=%td", arena_active(self), arena_capacity(self));
+    dprintfln("active=%td, capacity=%td", arena_active(self), arena_capacity(self));
 #endif
-    Region *next;
-    for (Region *it = self->begin; it != nullptr; it = next) {
-        DEBUG_PRINTFLN("[%i] Free " REGION_FMTSTR, depth++, REGION_FMTARGS(it));
+    for (Region *it = self->begin, *next;
+         it != nullptr;
+         it = next)
+    {
+        dprintfln("[%i] Free " REGION_FMTSTR, depth++, REGION_FMTARGS(it));
         next = it->next; // Save now because it->next is about to be invalid.
         region_free(it);
     }
@@ -282,61 +302,57 @@ void *arena_rawalloc(Arena *self, size rawsz, size align)
 {
     // Try to find or chain a new arena that can accomodate our allocation.
     Region *it  = self->begin;
-    size    pad;
+    size    pad = 0;
     for (;;) {
-        size active = REGION_ACTIVE(it);
-        size cap    = REGION_CAPACITY(it);
-        if (BITFLAG_OFF(self->flags, ARENA_NOPADDING))
-            pad = 0;
-        else
+        size active = region_active(it);
+        size cap    = region_capacity(it);
+        if (BITFLAG_ON(self->flags, ARENA_FALIGN))
             pad = ARENA_GETPADDING(align, active);
         // Requested size will be in range of the Region?
         if (active + rawsz + pad <= cap)
             break;
         // Need to chain a new region?
-        if (it->next == nullptr) {
+        if (!it->next) {
             size    reqsz = rawsz + pad;
             size    ncap  = (reqsz > cap) ? next_pow2(reqsz) : cap;
             Region *next  = region_new(ncap);
-            if (next == nullptr) {
-                if (BITFLAG_ON(self->flags, ARENA_NOTHROW))
-                    return nullptr;
-                else
-                    self->handler("Failed to chain new Region", ncap, self->context);
+            if (!next) {
+                arena_throw(self, "Failed to chain new Region", ncap);
+                return nullptr;
             }
             it->next = next;
         }
         it = it->next;
     }
-    uint8_t *data = it->free;
-    it->free     += rawsz + pad;
-    return cast(void*, data);
+    byte *data = it->free;
+    it->free  += rawsz + pad;
+    return cast_ptr(void, data);
 }
 
-static bool get_last_write(Arena *self, void *hint, size sz, Region **out)
+static Region *get_owning_region(Arena *self, void *hint, size sz)
 {
+    if (!hint)
+        return nullptr;
     for (Region *it = self->begin; it != nullptr; it = it->next) {
-        size act    = REGION_ACTIVE(it);
-        size cap    = REGION_CAPACITY(it);
+        size act    = region_active(it);
+        size cap    = region_capacity(it);
         size base_i = act - sz;
         // Base index of last allocation is in range for this Arena?
         if (0 <= base_i && base_i < cap) {
             // Last allocation is exactly the same as `hint`?
-            void *ptr = &it->buffer[base_i];
-            if (ptr == hint) {
-                *out = it;
-                return true;
-            }
+            if (&it->buffer[base_i] == hint)
+                return it;
         }
     }
-    return false;
+    return nullptr;
 }
 
 void *arena_rawrealloc(Arena *self, void *ptr, size oldsz, size newsz, size align)
 {
-    if (BITFLAG_OFF(self->flags, ARENA_NOSMARTREALLOC)) {
-        Region *tgt;
-        if (ptr != nullptr && get_last_write(self, ptr, oldsz, &tgt)) {
+    if (BITFLAG_ON(self->flags, ARENA_FSMARTREALLOC)) {
+        // Get target of last allocation.
+        Region *tgt = get_owning_region(self, ptr, oldsz);
+        if (tgt) {
             size reqsz = newsz - oldsz;
             // Our simple resize can fit in the given Arena?
             if (tgt->free + reqsz < tgt->end) {
@@ -351,17 +367,44 @@ void *arena_rawrealloc(Arena *self, void *ptr, size oldsz, size newsz, size alig
         return ptr;
     }
 
-    // NOTE: Only receive `nullptr` when `ARENA_NOTHROW` is on.
+    // NOTE: Only receive `nullptr` when `ARENA_FTHROW` is on.
     void *next = arena_rawalloc(self, newsz, align);
-    if (next == nullptr)
+    if (!next)
         return nullptr;
     return memcpy(next, ptr, oldsz);
+}
+
+void *arena_rawgrow_array(Arena *self, void *slice, size tsize, size align)
+{
+    // Copy the original struct header.
+    RawBuffer replica;
+    memcpy(&replica, slice, sizeof(replica));
+    
+    // Possibly passed a wrong struct?
+    if (!(0 <= replica.length && replica.length <= replica.capacity
+        && 0 <= replica.capacity))
+    {
+        arena_throw(self, "Invalid slice passed to rawgrow_array()", 0);
+        return nullptr;
+    }
+
+    if (replica.capacity == 0)
+        replica.capacity = 1;
+    size  oldsz       = tsize * replica.capacity;
+    size  newsz       = tsize * dynarray_growcap(replica.capacity);
+    void *newdata     = arena_rawrealloc(self, replica.data, oldsz, newsz, align);
+    replica.capacity *= 2;
+    
+    // Write the new allocated header to the caller's slice.
+    replica.data = newdata;
+    memcpy(slice, &replica, sizeof(replica));
+    return newdata;
 }
 
 void arena_print(const Arena *self)
 {
     int depth = 1;
     for (const Region *it = self->begin; it != nullptr; ++depth, it = it->next) {
-        printf("[%i] " REGION_FMTSTRLN, depth, REGION_FMTARGS(it));
+        printfln("[%i] " REGION_FMTSTR, depth, REGION_FMTARGS(it));
     }
 }

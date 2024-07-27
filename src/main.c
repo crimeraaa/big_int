@@ -15,122 +15,164 @@ static Arena *context_arena = &main_arena;
 static void lstring_test(int argc, const char *argv[])
 {
     arena_print(context_arena);
-    LString *args = context_alloc(LString, argc);
+    StringView *args = context_alloc(StringView, argc);
     arena_print(context_arena);
     for (int i = 0; i < argc; i++) {
         size  len  = strlen(argv[i]);
         char *data = context_alloc(char, len + 1);
         data[len]  = '\0';
-        args[i].data   = cast(char*, memcpy(data, argv[i], len));
+        args[i].data   = cast_ptr(char, memcpy(data, argv[i], len));
         args[i].length = len;
     }
     
     for (int i = 0; i < argc; i++)
-        printf("LString(length=%td,data=\"%s\")\n", args[i].length, args[i].data);
+        printf("StringView(length=%td,data=\"%s\")\n", args[i].length, args[i].data);
     arena_print(context_arena);
     arena_main(args, argc, context_arena);
 }
 
-static void buffer_test(int argc, const char *argv[])
+static void famstring_test(int argc, const char *argv[])
 {
     arena_print(context_arena);
-    // 1D array of `Buffer*`.
-    Buffer **args = context_alloc(Buffer*, argc);
+    // 1D array of `FamString*`.
+    FamString **args = context_alloc(FamString*, argc);
     arena_print(context_arena);
     for (int i = 0; i < argc; i++) {
-        Buffer *buf;
-        size    len = strlen(argv[i]);
-        size    ex  = array_sizeof(buf->data[0], len + 1);
+        FamString *buf;
+        size       len = strlen(argv[i]);
+        size       ex  = array_sizeof(buf->data[0], len + 1);
 
-        buf            = context_alloc(Buffer, 1, ex);
+        buf            = context_alloc(FamString, 1, ex);
         buf->length    = len;
         buf->data[len] = '\0';
-        memcpy(buf->data, argv[i], len); // NOTE: Return `Buffer::data` not self
+        memcpy(buf->data, argv[i], len); // NOTE: Return `FamString::data` not self
         args[i] = buf;
     }
     
     for (int i = 0; i < argc; i++)
-        printf("Buffer(length=%td, data=\"%s\")\n", args[i]->length, args[i]->data);
+        printf("FamString(length=%td, data=\"%s\")\n", args[i]->length, args[i]->data);
     arena_print(context_arena);
-}
-
-static LString read_line(FILE *stream)
-{
-    size  len = 0;
-    size  cap = 1;
-    char *buf = context_alloc(char, cap); // is at least nul char.
-    int   ch;
-    for (;;) {
-        ch = fgetc(stream);
-        if (ch == EOF || ch == '\n')
-            break;
-        // Always save buf[cap - 1] for the nul char.
-        if (len >= cap - 1) {
-            size newcap = DYNARRAY_GROWCAP(cap);
-
-            // We assume that `ARENA_NOTHROW` is not toggled on.
-            buf = context_realloc(char, buf, cap, newcap);
-            cap = newcap;
-        }
-        buf[len++] = cast(char, ch);
-    }
-    buf[len] = '\0';
-    return lstr_make(buf, len);
 }
 
 #define TEST_FILENAME   "all-star.txt"
 
-typedef struct ListString ListString;
-struct ListString {
-    ListString *next;
+typedef struct StringList StringList;
+struct StringList {
+    StringList *next;
     size        length;
     char        data[];
 };
 
-static ListString *read_file(const char *name)
+typedef struct Buffer {
+    char *data;
+    size  length;
+    size  capacity;
+} Buffer;
+
+static const char *context_readline(StringView *out, FILE *stream)
+{
+    static char init[] = {'\0'};
+    Buffer b;
+
+    // It's better to use a singular arena for a single dynamic buffer so that
+    // we can guarantee resizes will always just be incrementing counts.
+    context_arena = &scratch_arena;
+    context_reset();
+    
+    b.data     = init;
+    b.length   = 0;
+    b.capacity = array_countof(init);
+    for (;;) {
+        int ch = fgetc(stream);
+        if (ch == EOF || ch == '\n')
+            break;
+        // Always save at least the last valid spot for the nul char.
+        if (b.length >= b.capacity - 1) {
+            arena_grow_array(context_arena, &b);
+        }
+        b.data[b.length++] = cast(char, ch);
+    }
+    // Only allocate non-growable items of a known size to the main arena.
+    context_arena = &main_arena;
+
+    // NOTE: Assumes that the very last line has newline right before EOF.
+    if (feof(stream)) {
+        *out = lstr_literal("(EOF)");
+        return nullptr;
+    } else {
+        if (b.data) {
+            b.data[b.length] = '\0';
+        }
+        out->data   = b.data;
+        out->length = b.length;
+        return b.data;
+    }
+}
+
+static StringList *context_readfile(const char *name)
 { 
     FILE *fp = fopen(name, "r");
-    if (fp == nullptr) {
+    if (!fp) {
         eprintfln("Failed to open file '%s'", name);
         return nullptr;
     }
     // Forward iteration using only a singly-linked list!
-    ListString  *head = nullptr;
-    ListString **tail = &head;
-    while (!feof(fp)) {
-        context_arena = &scratch_arena;
-        // It's better to use a singular arena for a single dynamic buffer so that
-        // we can guarantee resizes will always just be incrementing counts.
-        context_reset();
-        LString ln = read_line(fp);
+    StringList  *head = nullptr;
+    StringList **tail = &head;
+    StringView   line;
+    while (context_readline(&line, fp)) {
+        const size  ex   = array_sizeof(head->data[0], line.length + 1);
+        StringList *next = context_alloc(StringList, 1, ex);
+        next->next       = *tail;
+        next->length     = line.length;
 
-        // Only allocate non-growable items of a known size to the main arena.
-        context_arena = &main_arena;
-        const size  famsz = array_sizeof(head->data[0], ln.length + 1);
-        ListString *next  = context_alloc(ListString, 1, famsz);
-        next->next        = *tail;
-        next->length      = ln.length;
-        memcpy(next->data, ln.data, ln.length);
+        memcpy(next->data, line.data, line.length);
+        next->data[line.length] = '\0';
         
         // Iteration
         *tail = next;
         tail  = &next->next;
     }
-    arena_print(&scratch_arena);
-    arena_print(&main_arena);
     fclose(fp);
     return head;
 }
 
-#define MARK_BEGIN          DEBUG_PRINTLN("===BEGIN===")
-#define MARK_END            DEBUG_PRINTLN("===END===")
-#define DEBUG_MARK(expr)    do {MARK_BEGIN; expr; MARK_END;} while (0)
+// https://nullprogram.com/blog/2023/10/05/
+I32Array fibonacci(i32 max, Arena *scratch)
+{
+    static i32 init[] = {0, 1};
+    I32Array   fib    = {0};
+
+    fib.data     = init;
+    fib.length   = array_countof(init); 
+    fib.capacity = fib.length;
+    
+    for (;;) {
+        i32 a = fib.data[fib.length - 2];
+        i32 b = fib.data[fib.length - 1];
+        if (a + b > max)
+            break;
+        if (fib.length >= fib.capacity) {
+            arena_grow_array(scratch, &fib);
+        }
+        fib.data[fib.length++] = a + b;
+        
+    }
+    return fib;
+}
+
+#define DEBUG_MARK(expr)                                                       \
+do {                                                                           \
+    dprintln("===BEGIN===");                                                   \
+    expr;                                                                      \
+    dprintln("===END==="); \
+} while (false)
 
 #ifdef DEBUG_USE_LONGJMP
 
 static void handle_error(const char *msg, size sz, void *ctx)
 {
-    jmp_buf *e = cast(jmp_buf*, ctx);
+    jmp_buf *e = cast_ptr(jmp_buf, ctx);
     fprintf(stderr, "[FATAL]: %s (requested %td bytes)\n", msg, sz);
     longjmp(*e, 1);
 }
@@ -142,19 +184,28 @@ int main(int argc, const char *argv[])
 #ifdef DEBUG_USE_LONGJMP
     jmp_buf err;
     if (setjmp(err) == 0) {
-        arena_init(&main_arena, REGION_DEFAULTSIZE, ARENA_NOPADDING, &handle_error, &err);
-        arena_init(&scratch_arena, 256, &handle_error, &err);
+        arena_init(/* self  */  &main_arena,
+                   /* cap   */  REGION_DEFAULTSIZE,
+                   /* fn    */  &handle_error,
+                   /* ctx   */  &err);
+
+        arena_init(/* self  */  &scratch_arena,
+                   /* cap   */  256,
+                   /* fn    */  &handle_error,
+                   /* ctx   */  &err);
 #else   // DEBUG_USE_LONGJMP not defined.
         arena_init(&main_arena, REGION_DEFAULTSIZE);
         arena_init(&scratch_arena, 256);
 #endif  // DEBUG_USE_LONGJMP
 
         DEBUG_MARK(lstring_test(argc, argv));
-        DEBUG_MARK(buffer_test(argc, argv));
+        DEBUG_MARK(famstring_test(argc, argv));
         DEBUG_MARK({
-            const ListString *list = read_file(TEST_FILENAME);
             int i = 1;
-            for (const ListString *it = list; it != nullptr; it = it->next) {
+            for (const StringList *it = context_readfile(TEST_FILENAME);
+                 it != nullptr;
+                 it = it->next)
+            {
                 printfln("%02i: %s", i++, it->data);
             }
         });
