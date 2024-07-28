@@ -10,20 +10,30 @@ OUT_OBJ	:= $(IN_LIST:$(DIR_SRC)/*.c=$(DIR_OBJ)/*.obj)
 OUT_ALL	:= $(OUT_EXE) $(OUT_OBJ)
 
 # CL.EXE flags that are indepdendent of C or C++.
+#
+# NOTE
+#	The slash flag notation doesn't work well with GNU Make.
+#	Foruntately Microsoft has the sense to support dash notation.
+#
 COMMON_FLAGS := -nologo -W4 -WX -permissive- -Zc:preprocessor \
 				-Fe:"$(OUT_EXE)" -Fo:"$(DIR_OBJ)/"
 
-# /Od		disable optimizations (default).
-# /Zi		enable debugging information. Needed for AddressSanitizer.
-# 			NOTE: This will generate a `vc*.pdb` file in the current directory.
-#			Set the output directory with `-Fd:"<path>/"`.
-# /D<macro>	define <macro> for this compilation unit.
-# 			NOTE: #define _DEBUG in MSVC requires linking to a debug lib.
-# /MDd		linked with MSVCRTD.LIB debug lib. Also defines _DEBUG.
+# --- DEBUG FLAGS --------------------------------------------------------------
+#
+# /Od			disable optimizations (default).
+# /Zi			enable debugging information. Needed for AddressSanitizer.
+# 				NOTE: Generates a `vc*.pdb` file in the current directory.
+#				Set the output directory with `-Fd:"<path>/"`.
+# /D<macro>		define <macro> for this compilation unit.
+# 				NOTE: #define _DEBUG in MSVC requires linking to a debug lib.
+# /MDd			linked with MSVCRTD.LIB debug lib. Also defines _DEBUG.
 # 
-# Debug macros:
-# DEBUG_USE_PRINT
-# DEBUG_USE_LONGJMP
+# --- DEBUG MACROS -------------------------------------------------------------
+#
+# DEBUG_USE_PRINT		Enable debug printouts via the `dprint*` macros.
+#						Otherwise, these macros will expand to empty statements.
+# DEBUG_USE_LONGJMP		Enable `src/main.c` to use a longjmp-based handler.
+#
 DEBUG_FLAGS := -Od -Zi -Fd:"$(DIR_BIN)/" -fsanitize=address -DDEBUG_USE_PRINT
 
 CC		:= cl
@@ -44,10 +54,13 @@ debug: CC_FLAGS  += $(DEBUG_FLAGS)
 debug: CXX_FLAGS += $(DEBUG_FLAGS)
 debug: build
 	
+# --- RELEASE FLAGS ------------------------------------------------------------
+#
 # /O1		maximum optimizations (favor space)
 # /O2		maximum optimizations (favor speed)
 # /Os		favor code space
 # /Ot 		favor code speed
+#
 .PHONY: release
 release: CC_FLAGS  += -O1
 release: CXX_FLAGS += -O1
