@@ -2,7 +2,7 @@
 
 Region *region_new(size cap)
 {
-    Region *r = cast_ptr(Region, malloc(fam_sizeof(*r, r->buffer[0], cap)));
+    Region *r = cast(Region*, malloc(fam_sizeof(*r, r->buffer[0], cap)));
     if (r) {
         r->next = nullptr;
         r->free = r->buffer;
@@ -14,7 +14,7 @@ Region *region_new(size cap)
 void region_free(Region *r)
 {
     // C Standard Library does bookkeeping for us.
-    free(cast_ptr(void, r));
+    free(cast(void*, r));
 }
 
 size region_active(const Region *r)
@@ -31,32 +31,32 @@ static void xalloc_test(Arena *scratch)
 {
     arena_print(scratch);
 
-    /* 
-    VISUALIZATION:
-        [0x00]  *select0
+    /**
+     * VISUALIZATION:
+     *      [0x00]  *select0
      */
     println("alloc `char`: len = default(1), extra = default(0)");
     char *select0 = arena_alloc(char, scratch);
     arena_print(scratch);
 
-    /* 
-    VISUALIZATION:
-        [0x00]  *select0
-        [0x01]  *select1
+    /**
+     * VISUALIZATION:
+     *      [0x00]  *select0
+     *      [0x01]  *select1
      */
     println("alloc `char`: len = 1, extra = default(0)");
     char *select1 = arena_alloc(char, scratch, 1);
     arena_print(scratch);
 
-    /*  
-    VISUALIZATION:
-        [0x00]  *select0
-        [0x01]  *select1
-        [0x02]  *select2
-        [0x03]  <padding>
-        [0x04]  -
-        [0x05]  -
-    */
+    /**
+     * VISUALIZATION:
+     *      [0x00]  *select0
+     *      [0x01]  *select1
+     *      [0x02]  *select2
+     *      [0x03]  <padding>
+     *      [0x04]  -
+     *      [0x05]  -
+     */
     println("alloc `char`: len = 1, extra = 3");
     char *select2 = arena_alloc(char, scratch, 1, 3);
     arena_print(scratch);
@@ -68,72 +68,72 @@ static void xalloc_test(Arena *scratch)
 
 static void align_test(Arena *scratch)
 {
-    /*
-    ARENA STATE
-        active = 1, capacity = 64
-    VISUALIZATION
-        [0x0]   char
+    /**
+     * ARENA STATE:
+     *      active = 1, capacity = 64
+     * VISUALIZATION:
+     *      [0x0]   char
      */
     char *cptr = arena_alloc(char, scratch);
     *cptr = 'a';
     printf("cptr = %p, *cptr = '%c'\n", cptr, *cptr);
     arena_print(scratch);
 
-    /*
-    ARENA STATE
-        active = 16, capacity = 64
-    VISUALIZATION
-        [0x0]   char
-        [0x1]   <padding>
-        ...     -
-        [0x8]   size[0]
-        ...     -
-        [0xf]   -
+    /**
+     * ARENA STATE:
+     *      active = 16, capacity = 64
+     * VISUALIZATION:
+     *      [0x0]   char
+     *      [0x1]   <padding>
+     *      ...     -
+     *      [0x8]   size[0]
+     *      ...     -
+     *      [0xf]   -
      */
     size *szptr = arena_alloc(size, scratch);
     *szptr = 12;
     printf("szptr = %p, *szptr = %td\n", szptr, *szptr);
     arena_print(scratch);
     
-    /* 
-    ARENA STATE
-        active = 18, capacity = 64
-    VISUALIZATION
-        [0x0]   char
-        [0x1]   <padding>
-        ...     -
-        [0x8]   size
-        ...     -
-        [0xf]   -
-        [0x10]  short
-        ...     -
-        [0x12]   <inactive>
+    /**
+     * ARENA STATE:
+     *      active = 18, capacity = 64
+     * VISUALIZATION:
+     *      [0x0]   char
+     *      [0x1]   <padding>
+     *      ...     -
+     *      [0x8]   size
+     *      ...     -
+     *      [0xf]   -
+     *      [0x10]  short
+     *      ...     -
+     *      [0x12]   <inactive>
      */
     short *hptr = arena_alloc(short, scratch);
     *hptr = -16000;
     printf("hptr = %p, *hptr = %hi\n", hptr, *hptr);
     arena_print(scratch);
     
-    /* 
-    ARENA STATE
-        active = 26, capacity = 64
-    VISUALIZATION
-        [0x0]   char
-        [0x1]   <padding>
-        ...     -
-        [0x8]   size
-        ...     -
-        [0x10]  short
-        [0x11]  -
-        [0x12]  'H'
-        [0x13]  'i'
-        [0x14]  'm'
-        [0x15]  ' '
-        [0x16]  'o'
-        [0x17]  'm'
-        [0x18]  '!'
-        [0x19]  '\0'
-        [0x1a]  <inactive>
+    /**
+     * STATE:
+     *      active = 26, capacity = 64
+     * VISUALIZATION:
+     *      [0x0]   char
+     *      [0x1]   <padding>
+     *      ...     -
+     *      [0x8]   size
+     *      ...     -
+     *      [0x10]  short
+     *      [0x11]  -
+     *      [0x12]  'H'
+     *      [0x13]  'i'
+     *      [0x14]  'm'
+     *      [0x15]  ' '
+     *      [0x16]  'o'
+     *      [0x17]  'm'
+     *      [0x18]  '!'
+     *      [0x19]  '\0'
+     *      [0x1a]  <inactive>
      */
     StringView msg  = lstr_literal("Hi mom!");
     char   *cstr = arena_alloc(char, scratch, 8);
@@ -142,26 +142,26 @@ static void align_test(Arena *scratch)
     printf("cstr = %p, cstr = \"%s\"\n", cstr, cstr);
     arena_print(scratch);
     
-    /* 
-    ARENA STATE
-        active = 36, capacity = 64
-    VISUALIZATION
-        [0x0]   char
-        [0x1]   <padding>
-        ...     -
-        [0x8]   size
-        ...     -
-        [0x10]  short
-        [0x11]  -
-        [0x12]  "Hi mom!"
-        ...     -
-        [0x1a]  <padding>
-        ...     -
-        [0x1c]  int[0]
-        ...     -
-        [0x20]  int[1]
-        ...     -
-        [0x24]  <inactive>
+    /**
+     * STATE:
+     *      active = 36, capacity = 64
+     * VISUALIZATION:
+     *      [0x0]   char
+     *      [0x1]   <padding>
+     *      ...     -
+     *      [0x8]   size
+     *      ...     -
+     *      [0x10]  short
+     *      [0x11]  -
+     *      [0x12]  "Hi mom!"
+     *      ...     -
+     *      [0x1a]  <padding>
+     *      ...     -
+     *      [0x1c]  int[0]
+     *      ...     -
+     *      [0x20]  int[1]
+     *      ...     -
+     *      [0x24]  <inactive>
      */
     int *iaptr = arena_alloc(int, scratch, 2);
     iaptr[0] = 943;
@@ -173,11 +173,12 @@ static void align_test(Arena *scratch)
 
 void arena_main(const StringView args[], size count, Arena *arena)
 {
-    Arena scratch;
+    Arena     scratch;
+    ArenaArgs init = arena_defaultargs();
+    init.flags    ^= ARENA_FALIGN;
+    init.capacity  = 128;
     eprintln("===NEW SCRATCH===");
-    arena_init(/*  self */  &scratch,
-               /*   cap */  128,
-               /* flags */  ARENA_FALIGN);
+    arena_init(&scratch, &init);
     arena_print(&scratch);
 
     eprintln("===XALLOC_TEST()===");
@@ -201,9 +202,9 @@ void arena_main(const StringView args[], size count, Arena *arena)
 }
 
 // By default we choose to report the bad allocation and immediately abort.
-static void exit_errorfn(const char *msg, size req, void *ctx)
+static void exit_errorfn(Arena *self, const char *msg, size req, void *ctx)
 {
-    unused(ctx);
+    unused(self, ctx);
     eprintfln("[FATAL] %s (requested %td bytes)", msg, req);
     fflush(stderr);
     exit(EXIT_FAILURE);
@@ -212,24 +213,36 @@ static void exit_errorfn(const char *msg, size req, void *ctx)
 static void arena_throw(Arena *self, const char *msg, size cap)
 {
     if (BITFLAG_ON(self->flags, ARENA_FTHROW))
-        self->handler(msg, cap, self->context);
+        self->handler(self, msg, cap, self->context);
 }
 
-bool arena_rawinit(Arena *self, size cap, u8 flags, ErrorFn fn, void *ctx)
+ArenaArgs arena_defaultargs(void)
 {
-    Region *r     = region_new(cap);
-    self->handler = (fn) ? fn : &exit_errorfn;
-    self->context = (fn) ? ctx : nullptr;
+    ArenaArgs args;
+    args.handler   = &exit_errorfn;
+    args.context   = nullptr;
+    args.capacity  = REGION_DEFAULTSIZE;
+    args.flags     = ARENA_FDEFAULT;
+    return args;
+}
+
+bool arena_init(Arena *self, const ArenaArgs *args)
+{
+    Region *r = region_new(args->capacity);
+    
+    // We assume that `init` is never null.
+    self->handler = args->handler;
+    self->context = args->context;
     self->begin   = r;
     self->end     = r;
-    self->flags   = flags;
+    self->flags   = args->flags;
 
     if (!r) {
-        arena_throw(self, "Failed to allocate new Region", cap);
+        arena_throw(self, "Failed to allocate new Region", args->capacity);
         return false;
     }
-    if (BITFLAG_ON(flags, ARENA_FZEROINIT))
-        memset(r->buffer, 0, cap);
+    if (BITFLAG_ON(args->flags, ARENA_FZEROINIT))
+        memset(r->buffer, 0, array_sizeof(r->buffer[0], args->capacity));
     return true;
 }
 
@@ -332,7 +345,7 @@ void *arena_rawalloc(Arena *self, size rawsz, size align)
     }
     byte *data = it->free;
     it->free  += rawsz + pad;
-    return cast_ptr(void, data);
+    return cast(void*, data);
 }
 
 static Region *get_owning_region(Arena *self, void *hint, size sz)
@@ -340,12 +353,10 @@ static Region *get_owning_region(Arena *self, void *hint, size sz)
     if (!hint)
         return nullptr;
     for (Region *it = self->begin; it != nullptr; it = it->next) {
-        size act    = region_active(it);
-        size cap    = region_capacity(it);
-        size base_i = act - sz;
-        // Base index of last allocation is in range for this Arena?
-        if (0 <= base_i && base_i < cap) {
-            // Last allocation is exactly the same as `hint`?
+        size base_i = region_active(it) - sz;
+        // Base index of allocation is in range for this Arena?
+        if (0 <= base_i && base_i < region_capacity(it)) {
+            // Allocation is exactly the same as `hint`?
             if (&it->buffer[base_i] == hint)
                 return it;
         }
@@ -356,13 +367,12 @@ static Region *get_owning_region(Arena *self, void *hint, size sz)
 void *arena_rawrealloc(Arena *self, void *ptr, size oldsz, size newsz, size align)
 {
     if (BITFLAG_ON(self->flags, ARENA_FSMARTREALLOC)) {
-        // Get target of last allocation.
-        Region *tgt = get_owning_region(self, ptr, oldsz);
-        if (tgt) {
+        Region *dst = get_owning_region(self, ptr, oldsz);
+        if (dst) {
             size reqsz = newsz - oldsz;
             // Our simple resize can fit in the given Arena?
-            if (tgt->free + reqsz < tgt->end) {
-                tgt->free += reqsz;
+            if (dst->free + reqsz < dst->end) {
+                dst->free += reqsz;
                 return ptr;
             }
         }
@@ -378,34 +388,6 @@ void *arena_rawrealloc(Arena *self, void *ptr, size oldsz, size newsz, size alig
     if (!next)
         return nullptr;
     return memcpy(next, ptr, oldsz);
-}
-
-void *arena_rawgrow_array(Arena *self, void *slice, size tsize, size align)
-{
-    // Copy the original struct header.
-    RawBuffer replica;
-    memcpy(&replica, slice, sizeof(replica));
-    
-    // Possibly passed a wrong struct?
-    // NOTE: No guarantee that this check will work!
-    if (!(0 <= replica.length && replica.length <= replica.capacity
-        && 0 <= replica.capacity))
-    {
-        arena_throw(self, "Invalid slice passed to rawgrow_array()", 0);
-        return nullptr;
-    }
-
-    if (replica.capacity == 0)
-        replica.capacity = 1;
-    size  oldsz       = tsize * replica.capacity;
-    size  newsz       = oldsz * 2;
-    void *newdata     = arena_rawrealloc(self, replica.data, oldsz, newsz, align);
-    replica.capacity *= 2;
-    
-    // Write the new allocated header to the caller's slice.
-    replica.data = newdata;
-    memcpy(slice, &replica, sizeof(replica));
-    return newdata;
 }
 
 void arena_print(const Arena *self)

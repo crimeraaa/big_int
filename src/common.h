@@ -24,13 +24,11 @@ C4996
 #   define cast(T, expr)            (static_cast<T>(expr))
 // https://news.ycombinator.com/item?id=18438288
 #   define coerce(T, expr)          (reinterpret_cast<T>(expr))
-#   define cast_ptr(T, expr)        (static_cast<T*>(expr))
 #   define cmp_literal(T, ...)      {__VA_ARGS__}
 #else   // __cplusplus not defined.
 #   define nullptr                  NULL
 #   define cast(T, expr)            ((T)(expr))
 #   define coerce(T, expr)          ((T)(expr))
-#   define cast_ptr(T, expr)        ((T*)(expr))
 #   define cmp_literal(T, ...)      (T){__VA_ARGS__}
 #endif  // __cplusplus
 
@@ -102,9 +100,15 @@ typedef struct I32Array {
     size capacity;
 } I32Array;
 
-// Used mainly for `arena_rawgrow_array()`.
-typedef struct RawBuffer {
-    void *data;     // Must be convertible to any other data pointer.
+typedef struct StringList StringList;
+struct StringList {
+    StringList *next;
+    size        length;
+    char        data[];
+};
+
+typedef struct Buffer {
+    char *data;
     size  length;
     size  capacity;
-} RawBuffer;
+} Buffer;

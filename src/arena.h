@@ -21,7 +21,7 @@ Overview
 
  */
 enum {
-    ARENA_FNODEFAULT    = 0x0,
+    ARENA_FNODEFAULT    = 0x0, // All succeeding bit flags unset.
     ARENA_FZEROINIT     = 0x1, // Enables memset of 0 on Region's buffer.
     ARENA_FTHROW        = 0x2, // Enables error handlers on malloc error.
     ARENA_FALIGN        = 0x4, // Enables determining alignment/padding.
@@ -36,7 +36,7 @@ enum {
 // https://github.com/tsoding/arena/blob/master/arena.h
 typedef struct Region Region;
 typedef struct Arena  Arena;
-typedef void (*ErrorFn)(const char *msg, size sz, void *ctx);
+typedef void (*ErrorFn)(Arena *self, const char *msg, size sz, void *ctx);
 
 struct Region {
     Region *next;     // Regions can link to each other.
@@ -53,12 +53,20 @@ struct Arena {
     u8      flags;
 };
 
+typedef struct ArenaArgs {
+    ErrorFn handler;
+    void   *context;
+    size    capacity;
+    u8      flags;
+} ArenaArgs;
+
 Region *region_new(size cap);
 void    region_free(Region *r);
 size    region_active(const Region *r);
 size    region_capacity(const Region *r);
 
-bool    arena_rawinit(Arena *self, size cap, u8 flags, ErrorFn fn, void *ctx);
+ArenaArgs arena_defaultargs(void);
+bool    arena_init(Arena *self, const ArenaArgs *args);
 void    arena_set_flags(Arena *self, u8 flags);
 void    arena_clear_flags(Arena *self, u8 flags);
 void    arena_reset(Arena *self);
@@ -70,36 +78,7 @@ void   *arena_rawalloc(Arena *self, size rawsz, size align);
 void   *arena_rawrealloc(Arena *self, void *ptr, size oldsz, size newsz, size align);
 void    arena_main(const StringView args[], size count, Arena *arena);
 
-/**
- * @param   slice   Pointer to a struct which is similar to `RawBuffer`. It must
- *                  contain a data pointer, length, and capacity, in that order.
- *
- * @note    Relies on the above assumption as well as the idea that all data
- *          pointers are the same size. If they are not, this will fail.
- */
-void   *arena_rawgrow_array(Arena *self, void *slice, size tsize, size align);
-
-#define arena__xinit5(a, n, flg, fn, ctx) arena_rawinit(a, n, flg, fn, ctx)
-#define arena__xinit4(a, n, fn, ctx) arena__xinit5(a, n, ARENA_FDEFAULT, fn, ctx)
-#define arena__xinit3(a, n, flg)    arena__xinit5(a, n, flg, nullptr, nullptr)
-#define arena__xinit2(a, n)         arena__xinit3(a, n, ARENA_FDEFAULT)
-#define arena__xinit1(a)            arena__xinit2(a, REGION_DEFAULTSIZE)
-
-// ... = self [, len [, flags [, fn, ctx ] ] ] OR
-// ... = self [, len [, fn, ctx ] ]
-// TODO: Differentiate (self, len, fn, ctx) and (self, flags, fn, ctx)?
-#define arena_init(...)                                                        \
-    x__xselect6(                                                               \
-        __VA_ARGS__,                                                           \
-        arena__xinit5,                                                         \
-        arena__xinit4,                                                         \
-        arena__xinit3,                                                         \
-        arena__xinit2,                                                         \
-        arena__xinit1,                                                         \
-    )(__VA_ARGS__)
-
-
-#define arena__xrawalloc(T, a, sz)  cast_ptr(T, arena_rawalloc(a, sz, alignof(T)))
+#define arena__xrawalloc(T, a, sz)  cast(T*, arena_rawalloc(a, sz, alignof(T)))
 #define arena__xalloc4(T, a, n, ex) arena__xrawalloc(T, a, sizeof(T) * (n) + (ex))
 #define arena__xalloc3(T, a, n)     arena__xalloc4(T, a, n, 0)
 #define arena__xalloc2(T, a)        arena__xalloc3(T, a, 1)
@@ -113,22 +92,31 @@ void   *arena_rawgrow_array(Arena *self, void *slice, size tsize, size align);
         arena__xalloc2                                                         \
     )(T, __VA_ARGS__)
 
-#define arena__xrawrealloc(T, a, p, oldsz, newsz) \
-    cast_ptr(T, arena_rawrealloc(a, p, oldsz, newsz, alignof(T)))
-#define arena_realloc(T, a, ptr, oldn, newn) \
-    arena__xrawrealloc(T, a, ptr, sizeof(T) * (oldn), sizeof(T) * (newn))
+#define arena__xrawrealloc(T, arena, ptr, oldsz, newsz) \
+    cast(T*, arena_rawrealloc(arena, ptr, oldsz, newsz, alignof(T)))
 
-// Unfortunately we cannot do `alignof((s)->data[0])`, so align is fixed.
-#define arena_grow_array(a, s)                                                 \
-(                                                                              \
-    arena_rawgrow_array(a, s, sizeof((s)->data[0]), alignof(RawBuffer))        \
-)
+#define arena_realloc_extra(T, arena, ptr, oldlen, newlen, extra)              \
+    arena__xrawrealloc(                                                        \
+        T,                                                                     \
+        arena,                                                                 \
+        ptr,                                                                   \
+        sizeof(T) * (oldlen) + (extra),                                        \
+        sizeof(T) * (newlen) + (extra)                                         \
+    )
 
-// Checks if we need to grow and returns a pointer to the next element.
-// https://nullprogram.com/blog/2023/10/05/
-#define dynarray_push(da, arena)                                               \
-(                                                                              \
-    ((da)->length >= (da)->capacity)                                           \
-        ? arena_grow_array(arena, da), (da)->data + (da)->length++             \
-        : (da)->data + (da)->length++                                          \
-)
+#define arena_realloc(T, arena, ptr, oldlen, newlen) \
+    arena_realloc_extra(T, arena, ptr, oldlen, newlen, 0)
+
+// Assumes `da` has members `data`, `length` and `capacity`.
+// Inspired by: https://nullprogram.com/blog/2023/10/05/
+// and: https://github.com/tsoding/arena/blob/master/arena.h#L89
+#define dynarray_push(T, da, val, arena)                                       \
+do {                                                                           \
+    if ((da)->length >= (da)->capacity) {                                      \
+        size oldn_     = (da)->capacity;                                       \
+        size newn_     = (oldn_ < 8) ? 8 : oldn_ * 2;                          \
+        (da)->data     = arena_realloc(T, arena, (da)->data, oldn_, newn_);    \
+        (da)->capacity = newn_;                                                \
+    }                                                                          \
+    (da)->data[(da)->length++] = (val);                                        \
+} while (false)
