@@ -1,8 +1,12 @@
+#define LOG_WANT_IMPLEMENTATION 1
 #include "arena.h"
+#include "log.h"
 
 Region *region_new(size cap)
 {
-    Region *r = cast(Region*, malloc(fam_sizeof(*r, r->buffer[0], cap)));
+    Region *r;
+    log_tracecall();
+    r = cast(Region*, malloc(fam_sizeof(*r, r->buffer[0], cap)));
     if (r) {
         r->next = nullptr;
         r->free = r->buffer;
@@ -13,6 +17,7 @@ Region *region_new(size cap)
 
 void region_free(Region *r)
 {
+    log_tracecall();
     // C Standard Library does bookkeeping for us.
     free(cast(void*, r));
 }
@@ -29,6 +34,7 @@ size region_capacity(const Region *r)
 
 static void xalloc_test(Arena *scratch)
 {
+    log_tracecall();
     arena_print(scratch);
 
     /**
@@ -68,6 +74,7 @@ static void xalloc_test(Arena *scratch)
 
 static void align_test(Arena *scratch)
 {
+    log_tracecall();
     /**
      * ARENA STATE:
      *      active = 1, capacity = 64
@@ -175,25 +182,23 @@ void arena_main(const StringView args[], size count, Arena *arena)
 {
     Arena     scratch;
     ArenaArgs init = arena_defaultargs();
+    log_tracecall();
     init.flags    ^= ARENA_FALIGN;
     init.capacity  = 128;
-    eprintln("===NEW SCRATCH===");
     arena_init(&scratch, &init);
     arena_print(&scratch);
 
-    eprintln("===XALLOC_TEST()===");
     arena_reset(&scratch);
     xalloc_test(&scratch);
     arena_print(&scratch);
 
-    eprintln("===ALIGN_TEST()===");
     arena_reset(&scratch);
     align_test(&scratch);
     arena_print(&scratch);
 
     arena_free(&scratch);
     eprintln("===FREE SCRATCH===");
-    for (size i = 0; i < count; i++) {
+    for (size i = 0; 0 <= i && i < count; i++) {
         printf("args[%td](data=\"%s\", length=%td)\n",
                i, args[i].data, args[i].length);
     }
@@ -228,7 +233,9 @@ ArenaArgs arena_defaultargs(void)
 
 bool arena_init(Arena *self, const ArenaArgs *args)
 {
-    Region *r = region_new(args->capacity);
+    Region *r;
+    log_tracecall();
+    r = region_new(args->capacity);
     
     // We assume that `init` is never null.
     self->handler = args->handler;
@@ -264,7 +271,7 @@ void arena_clear_flags(Arena *self, u8 flags)
 
 size arena_active(const Arena *self)
 {
-    size n = 0;    
+    size n = 0;
     for (const Region *it = self->begin; it != nullptr; it = it->next) {
         n += region_active(it);
     }
@@ -282,6 +289,7 @@ size arena_capacity(const Arena *self)
 
 void arena_reset(Arena *self)
 {
+    log_tracecall();
     for (Region *it = self->begin; it != nullptr; it = it->next) {
         it->free = it->buffer;
     }
@@ -289,15 +297,14 @@ void arena_reset(Arena *self)
 
 void arena_free(Arena *self)
 {
-#ifdef DEBUG_USE_PRINT
     int depth = 1;
-    dprintfln("active=%td, capacity=%td", arena_active(self), arena_capacity(self));
-#endif
+    log_tracecall();
+    log_debugf("active=%td, capacity=%td", arena_active(self), arena_capacity(self));
     for (Region *it = self->begin, *next;
          it != nullptr;
          it = next)
     {
-        dprintfln("[%i] Free " REGION_FMTSTR, depth++, REGION_FMTARGS(it));
+        log_debugf("[%i] Free " REGION_FMTSTR, depth++, REGION_FMTARGS(it));
         next = it->next; // Save now because it->next is about to be invalid.
         region_free(it);
     }
@@ -322,6 +329,7 @@ void *arena_rawalloc(Arena *self, size rawsz, size align)
     // Try to find or chain a new arena that can accomodate our allocation.
     Region *it  = self->begin;
     size    pad = 0;
+    
     for (;;) {
         size active = region_active(it);
         size cap    = region_capacity(it);
@@ -354,9 +362,9 @@ static Region *get_owning_region(Arena *self, void *hint, size sz)
         return nullptr;
     for (Region *it = self->begin; it != nullptr; it = it->next) {
         size base_i = region_active(it) - sz;
-        // Base index of allocation is in range for this Arena?
+        // Base index of last allocation is in range for this Arena?
         if (0 <= base_i && base_i < region_capacity(it)) {
-            // Allocation is exactly the same as `hint`?
+            // Last allocation is exactly the same as `hint`?
             if (&it->buffer[base_i] == hint)
                 return it;
         }

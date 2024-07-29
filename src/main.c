@@ -1,5 +1,6 @@
 #include <setjmp.h>
 #include "arena.h"
+#include "log.h"
 
 // #define DEBUG_USE_LONGJMP
 
@@ -143,9 +144,9 @@ I32Array fibonacci(i32 max)
 
 #define DEBUG_MARK(expr)                                                       \
 do {                                                                           \
-    dprintln("===BEGIN===");                                                   \
+    log_debugln("===BEGIN===");                                                   \
     expr;                                                                      \
-    dprintln("===END===\n");                                                   \
+    log_debugln("===END===\n");                                                   \
 } while (false)
 
 #ifdef DEBUG_USE_LONGJMP
@@ -165,6 +166,7 @@ int main(int argc, const char *argv[])
     ArenaArgs main_init    = arena_defaultargs();
     ArenaArgs scratch_init = arena_defaultargs();
     scratch_init.capacity  = 256;
+    log_tracecall();
 #ifdef DEBUG_USE_LONGJMP
     jmp_buf err;
     if (setjmp(err) == 0) {
@@ -180,9 +182,13 @@ int main(int argc, const char *argv[])
         arena_init(&scratch_arena, &scratch_init);
 
         DEBUG_MARK(lstring_test(argc, argv));
-        DEBUG_MARK(famstring_test(argc, argv));
+        DEBUG_MARK({
+            context_reset();
+            famstring_test(argc, argv);
+        });
         DEBUG_MARK({
             int i = 1;
+            context_reset();
             for (const StringList *it = read_file(TEST_FILENAME);
                  it != nullptr;
                  it = it->next)
@@ -196,8 +202,9 @@ int main(int argc, const char *argv[])
         DEBUG_MARK({
             context_arena = &scratch_arena;
             context_reset();
+            // If we pass INT32_MAX itself, a + b > max may overflow!
             const I32Array ia = fibonacci(INT32_MAX / 2);
-            for (size i = 0; i < ia.length; i++) {
+            for (size i = 0; 0 <= i && i < ia.length; i++) {
                 if (0 < i && i < ia.length) {
                     printf(", ");
                 }

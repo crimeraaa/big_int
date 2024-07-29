@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdarg.h>
 #include <stdalign.h>   //  alignof
 #include <stdbool.h>    //  bool
 #include <stdint.h>     //  [u]int family
@@ -40,21 +41,14 @@ C4996
 #define eprintfln(fmt, ...)         eprintf(fmt "\n", __VA_ARGS__)
 #define eprintln(s)                 eprintfln("%s", s)
 
-#ifdef DEBUG_USE_PRINT
-#   define dprintf(fmt, ...)        eprintf("[DEBUG] %-12s: " fmt, __func__, __VA_ARGS__)
-#   define dprintfln(fmt, ...)      dprintf(fmt "\n", __VA_ARGS__)
-#   define dprintln(msg)            dprintfln("%s", msg)
-#else   // DEBUG_USE_PRINT not defined.
-#   define dprintf(fmt, ...)
-#   define dprintfln(fmt, ...)
-#   define dprintln(msg)
-#endif  // DEBUG_USE_PRINT
-
 #define array_literal(T, ...)       cmp_literal(T[], __VA_ARGS__)
 #define array_sizeof(T, N)          (sizeof(T) * (N))
 #define array_countof(T)            (sizeof(T) / sizeof((T)[0]))
 #define fam_sizeof(T, memb, n)      (sizeof(T) + sizeof(memb) * (n))
 #define fam_new(T, memb, n)         cast(T*, malloc(fam_sizeof(T, memb, n)))
+
+#define x__xstringify2(x)           #x
+#define xstringify(x)               x__xstringify2(x)
 
 // Horrible horribly preprocessor trickery!
 #define x__xselect3(_1,_2,_3,...)           _3

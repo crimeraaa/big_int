@@ -4,7 +4,7 @@ DIR_OBJ	:= obj
 DIR_BIN	:= bin
 DIR_ALL	:= $(DIR_OBJ) $(DIR_BIN)
 
-IN_LIST	:= $(addprefix $(DIR_SRC)/,common.h arena.h arena.c main.c)
+IN_LIST	:= $(addprefix $(DIR_SRC)/,common.h log.h arena.h arena.c main.c)
 OUT_EXE	:= $(DIR_BIN)/main.exe
 OUT_OBJ	:= $(IN_LIST:$(DIR_SRC)/*.c=$(DIR_OBJ)/*.obj)
 OUT_ALL	:= $(OUT_EXE) $(OUT_OBJ)
@@ -30,7 +30,7 @@ COMMON_FLAGS := -nologo -W4 -WX -permissive- -Zc:preprocessor \
 # 
 # --- DEBUG MACROS -------------------------------------------------------------
 #
-# DEBUG_USE_PRINT		Enable debug printouts via the `dprint*` macros.
+# DEBUG_USE_PRINT		Enable debug printouts via the `logprint*` macros.
 #						Otherwise, these macros will expand to empty statements.
 # DEBUG_USE_LONGJMP		Enable `src/main.c` to use a longjmp-based handler.
 #
