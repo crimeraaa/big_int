@@ -1,5 +1,6 @@
 #pragma once
 
+/// standard
 #include <stdarg.h>
 #include <stdalign.h>   //  alignof
 #include <stdbool.h>    //  bool
@@ -8,14 +9,14 @@
 #include <stdlib.h>     //  malloc family
 #include <string.h>     //  str* and mem* families
 
-/*
-C4200
-    nonstandard extension used: zero-sized array in struct/union
-    Even though flexible array members are part of the C11 standard...
-C4996
-    '<func>': This function or variable may be unsafe. Consider using '<func>_s'
-    instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS.
-    Yeah, thanks but no thanks!
+/**
+ * C4200:
+ *      nonstandard extension used: zero-sized array in struct/union
+ *      Even though flexible array members are part of the C11 standard...
+ * C4996:
+ *      '<func>': This function or variable may be unsafe. Consider using
+ *      '<func>_s' instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS.
+ *      Yeah, thanks but no thanks!
  */
 #ifdef _MSC_VER
 #   pragma warning( disable : 4200 4996 )

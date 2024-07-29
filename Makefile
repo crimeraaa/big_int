@@ -30,11 +30,9 @@ COMMON_FLAGS := -nologo -W4 -WX -permissive- -Zc:preprocessor \
 # 
 # --- DEBUG MACROS -------------------------------------------------------------
 #
-# DEBUG_USE_PRINT		Enable debug printouts via the `logprint*` macros.
-#						Otherwise, these macros will expand to empty statements.
 # DEBUG_USE_LONGJMP		Enable `src/main.c` to use a longjmp-based handler.
 #
-DEBUG_FLAGS := -Od -Zi -Fd:"$(DIR_BIN)/" -fsanitize=address -DDEBUG_USE_PRINT
+DEBUG_FLAGS := -Od -Zi -Fd:"$(DIR_BIN)/" -fsanitize=address
 
 CC		:= cl
 CC_FLAGS := $(COMMON_FLAGS) -std:c11 -Zc:__STDC__

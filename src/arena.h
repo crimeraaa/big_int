@@ -1,37 +1,70 @@
 #pragma once
 
+/// local
 #include "common.h"
 
 #define REGION_FMTSTR       "Region(active=%td, capacity=%td)"
 #define REGION_FMTARGS(r)   region_active(r), region_capacity(r)
 #define REGION_DEFAULTSIZE  (1024 * 8)
 
-/* 
-Overview
-    Bit flags allow us to combine multiple boolean flags into a single unsigned
-    integer.
-
-    To enable particular flags, simply use the bitwise OR operator e.g:
-
-    (ARENA_FZEROINIT | ARENA_FTHROW)
-    
-    Conversely, to disable particular flags, simply use the bitwise XOR operator:
-    
-    (ARENA_FDEFAULT ^ ARENA_FTHROW)
-
+/**
+ * OVERVIEW:
+ *     Bit flags allow us to combine multiple boolean flags into a single unsigned
+ *     integer.
+ *
+ * ENABLING:
+ *     To enable particular flags, simply bitwise OR all the flags you'd like, e.g:
+ * 
+ *     u8 myflags = ARENA_FZEROINIT | ARENA_FTHROW;
+ *     myflags |= ARENA_FGROW;
+ *
+ * DISABLING: 
+ *     Conversely, to disable particular flags, use `ARENA_FDEFAULT' as a bitmask,
+ *     then bitwise XOR the masks you don't want, e.g:
+ *     
+ *     u8 myflags = ARENA_FDEFAULT ^ ARENA_FALIGN ^ ARENA_FSMARTREALLOC;
+ *     myflags ^= ARENA_FGROW;
+ *     
+ * CHECKING:
+ *      To check if a given bitflag is enabled use the bitwise AND.
+ *  
+ *      u8 test = ARENA_FDEFAULT;
+ *      if (test & ARENA_FALIGN)
+ *          printf("Alignment is enabled!\n");
+ *      else
+ *          printf("Alignment is not enabled.\n");
+ *      
+ *      To check if a given bitflag is NOT enabled, you have 2 options.
+ *      1.) Simply logical NOT the result of the bitwise AND.
+ *      
+ *      u8 test = ARENA_FNODEFAULT;
+ *      if (!(test & ARENA_FALIGN))
+ *          printf("Alignment is not enabled!\n");
+ *      else
+ *          printf("Alignment is enabled!\n");
+ *          
+ *      2.) Bitwise XOR the result of the bitwise AND with the flag.
+ * 
+ *      u8 test = ARENA_FNODEFAULT;
+ *      if ((test & ARENA_FALIGN) ^ ARENA_FALIGN)
+ *          printf("Alignment is not enabled.\n");
+ *      else
+ *          printf("Alignment is enabled!\n");
+ * 
  */
 enum {
     ARENA_FNODEFAULT    = 0x0, // All succeeding bit flags unset.
-    ARENA_FZEROINIT     = 0x1, // Enables memset of 0 on Region's buffer.
-    ARENA_FTHROW        = 0x2, // Enables error handlers on malloc error.
-    ARENA_FALIGN        = 0x4, // Enables determining alignment/padding.
-    ARENA_FSMARTREALLOC = 0x8, // Enables trying to find last allocation.
-    ARENA_FDEFAULT      = (ARENA_FZEROINIT | ARENA_FTHROW 
+    ARENA_FZEROINIT     = 0x1, // Memset Region buffer to 0 on init?
+    ARENA_FGROW         = 0x2, // Allow Region to grow if allocation too large?
+    ARENA_FTHROW        = 0x4, // Use error handler on malloc error?
+    ARENA_FALIGN        = 0x8, // Align the returned pointers?
+    ARENA_FSMARTREALLOC = 0x10, // Try to find last allocation when realloc'ing?
+    ARENA_FDEFAULT      = (ARENA_FZEROINIT | ARENA_FGROW | ARENA_FTHROW 
                           | ARENA_FALIGN   | ARENA_FSMARTREALLOC),
 };
 
 #define BITFLAG_ON(n, flag)     ((n) & (flag))
-#define BITFLAG_OFF(n, flag)    (!BITFLAG_ON(n, flag))
+#define BITFLAG_OFF(n, flag)    ((n) & (flag) ^ (flag))
 
 // https://github.com/tsoding/arena/blob/master/arena.h
 typedef struct Region Region;

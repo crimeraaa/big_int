@@ -1,4 +1,6 @@
 #define LOG_WANT_IMPLEMENTATION 1
+
+/// local
 #include "arena.h"
 #include "log.h"
 
@@ -210,44 +212,58 @@ void arena_main(const StringView args[], size count, Arena *arena)
 static void exit_errorfn(Arena *self, const char *msg, size req, void *ctx)
 {
     unused(self, ctx);
-    eprintfln("[FATAL] %s (requested %td bytes)", msg, req);
+    log_fatalf("%s (requested %td bytes)", msg, req);
     fflush(stderr);
-    exit(EXIT_FAILURE);
+    abort();
 }
 
-static void arena_throw(Arena *self, const char *msg, size cap)
+static void *arena_throw(Arena *self, const char *msg, size cap)
 {
     if (BITFLAG_ON(self->flags, ARENA_FTHROW))
         self->handler(self, msg, cap, self->context);
+    return nullptr;
 }
+
+static const ArenaArgs ARENA_DEFAULTARGS = {
+    /* handler  */  &exit_errorfn,
+    /* context  */  nullptr,
+    /* capacity */  REGION_DEFAULTSIZE,
+    /* flags    */  ARENA_FDEFAULT,
+};
+
+static const ArenaArgs ARENA_NODEFAULTARGS = {
+    /* handler  */  nullptr,
+    /* context  */  nullptr,
+    /* capacity */  0,
+    /* flags    */  ARENA_FNODEFAULT,
+};
 
 ArenaArgs arena_defaultargs(void)
 {
-    ArenaArgs args;
-    args.handler   = &exit_errorfn;
-    args.context   = nullptr;
-    args.capacity  = REGION_DEFAULTSIZE;
-    args.flags     = ARENA_FDEFAULT;
-    return args;
+    return ARENA_DEFAULTARGS;
+}
+
+ArenaArgs arena_nodefaultargs(void)
+{
+    return ARENA_NODEFAULTARGS;
 }
 
 bool arena_init(Arena *self, const ArenaArgs *args)
 {
     Region *r;
     log_tracecall();
-    r = region_new(args->capacity);
+    if (!args)
+        args = &ARENA_DEFAULTARGS;
     
-    // We assume that `init` is never null.
+    r = region_new(args->capacity);
     self->handler = args->handler;
     self->context = args->context;
     self->begin   = r;
     self->end     = r;
     self->flags   = args->flags;
 
-    if (!r) {
-        arena_throw(self, "Failed to allocate new Region", args->capacity);
-        return false;
-    }
+    if (!r)
+        return arena_throw(self, "Failed to allocate new Region", args->capacity);
     if (BITFLAG_ON(args->flags, ARENA_FZEROINIT))
         memset(r->buffer, 0, array_sizeof(r->buffer[0], args->capacity));
     return true;
@@ -256,6 +272,7 @@ bool arena_init(Arena *self, const ArenaArgs *args)
 void arena_set_flags(Arena *self, u8 flags)
 {
     self->flags |= flags & ARENA_FZEROINIT;
+    self->flags |= flags & ARENA_FGROW;
     self->flags |= flags & ARENA_FTHROW;
     self->flags |= flags & ARENA_FALIGN;
     self->flags |= flags & ARENA_FSMARTREALLOC;
@@ -264,6 +281,7 @@ void arena_set_flags(Arena *self, u8 flags)
 void arena_clear_flags(Arena *self, u8 flags)
 {
     self->flags ^= flags & ARENA_FZEROINIT;
+    self->flags ^= flags & ARENA_FGROW;
     self->flags ^= flags & ARENA_FTHROW;
     self->flags ^= flags & ARENA_FALIGN;
     self->flags ^= flags & ARENA_FSMARTREALLOC;
@@ -289,7 +307,7 @@ size arena_capacity(const Arena *self)
 
 void arena_reset(Arena *self)
 {
-    log_tracecall();
+    // log_tracecall();
     for (Region *it = self->begin; it != nullptr; it = it->next) {
         it->free = it->buffer;
     }
@@ -341,12 +359,18 @@ void *arena_rawalloc(Arena *self, size rawsz, size align)
         // Need to chain a new region?
         if (!it->next) {
             size    reqsz = rawsz + pad;
-            size    ncap  = (reqsz > cap) ? next_pow2(reqsz) : cap;
-            Region *next  = region_new(ncap);
-            if (!next) {
-                arena_throw(self, "Failed to chain new Region", ncap);
-                return nullptr;
+            size    ncap;
+            Region *next;
+            if (reqsz > cap) {
+                ncap = next_pow2(reqsz);
+                if (BITFLAG_OFF(self->flags, ARENA_FGROW))
+                    return arena_throw(self, "Cannot grow Arena", ncap);
+            } else {
+                ncap = cap;
             }
+            next = region_new(ncap);
+            if (!next)
+                return arena_throw(self, "Failed to chain new Region", ncap);
             it->next = next;
         }
         it = it->next;
@@ -356,7 +380,7 @@ void *arena_rawalloc(Arena *self, size rawsz, size align)
     return cast(void*, data);
 }
 
-static Region *get_owning_region(Arena *self, void *hint, size sz)
+static Region *get_owning_region_of_last_alloc(Arena *self, void *hint, size sz)
 {
     if (!hint)
         return nullptr;
@@ -375,7 +399,7 @@ static Region *get_owning_region(Arena *self, void *hint, size sz)
 void *arena_rawrealloc(Arena *self, void *ptr, size oldsz, size newsz, size align)
 {
     if (BITFLAG_ON(self->flags, ARENA_FSMARTREALLOC)) {
-        Region *dst = get_owning_region(self, ptr, oldsz);
+        Region *dst = get_owning_region_of_last_alloc(self, ptr, oldsz);
         if (dst) {
             size reqsz = newsz - oldsz;
             // Our simple resize can fit in the given Arena?
