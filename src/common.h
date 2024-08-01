@@ -81,8 +81,8 @@ typedef struct StringView {
     size        length; // Number of desired characters sans the nul terminator.
 } StringView;
 
-#define lstr_make(s, n) cmp_literal(StringView, s, n)
-#define lstr_literal(s) lstr_make(s, array_countof(s) - 1)
+#define sv_make(s, n)   cmp_literal(StringView, s, n)
+#define sv_literal(s)   sv_make(s, array_countof(s) - 1)
 
 typedef struct FamString {
     size length;    // Number of desired characters, sans nul terminator.

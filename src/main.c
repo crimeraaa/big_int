@@ -1,4 +1,36 @@
 /// local
+#define LOG_INCLUDE_IMPLEMENTATION
+#define BIGINT_INCLUDE_IMPLEMENTATION
+#include "bigint.h"
+
+static void simple_digit_tests(void)
+{
+    BigInt a = bigint_from_int(0);
+    
+    bigint_print(&a);
+    bigint_iadd(&a, 1);     bigint_print(&a); // 1
+    bigint_iadd(&a, 3);     bigint_print(&a); // 4
+    bigint_iadd(&a, 11);    bigint_print(&a); // 15
+    bigint_iadd(&a, 1234);  bigint_print(&a); // 1249
+    
+    a = bigint_from_cstring("099");
+    
+    bigint_print(&a);
+    bigint_iadd(&a, 33);    bigint_print(&a); // 132
+    bigint_iadd(&a, 99);    bigint_print(&a); // 231
+    bigint_iadd(&a, 678);   bigint_print(&a); // 909
+}
+
+int main(void)
+{
+    simple_digit_tests();
+    return 0;
+}
+
+#if false
+
+/// local
+#define ARENA_INCLUDE_IMPLEMENTATION
 #include "arena.h"
 #include "log.h"
 
@@ -91,11 +123,11 @@ static const char *read_line(StringView *out, FILE *stream)
     context_arena = &main_arena;
 
     if (ferror(stream)) {
-        *out = lstr_literal("(ERROR)");
+        *out = sv_literal("(ERROR)");
         return nullptr;
     } else if (feof(stream)) {
         // TODO: May break for files w/o newline terminating very last line
-        *out = lstr_literal("(EOF)");
+        *out = sv_literal("(EOF)");
         return nullptr;
     } else {
         out->data   = b.data;
@@ -160,9 +192,9 @@ I32Array fibonacci(i32 max)
 
 #define DEBUG_MARK(expr)                                                       \
 do {                                                                           \
-    log_debugln("===BEGIN===");                                                   \
+    log_debugln("===BEGIN===");                                                \
     expr;                                                                      \
-    log_debugln("===END===\n");                                                   \
+    log_debugln("===END===\n");                                                \
 } while (false)
 
 #ifdef DEBUG_USE_LONGJMP
@@ -239,3 +271,5 @@ int main(int argc, const char *argv[])
 #endif  // DEBUG_USE_LONGJMP
     return 0;
 }
+
+#endif // false
