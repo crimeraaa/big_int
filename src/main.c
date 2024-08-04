@@ -5,49 +5,62 @@
 #include "ansi.h"
 #include "bigint.h"
 
-static void test_iadd(int addend1, int addend2)
+static void test_add(int addend1, int addend2)
 {
-    BigInt bi = bigint_from_int(addend1);
-    log_tracef("%s(addend1=%i, addend2=%i)", __func__, addend1, addend2);
-    bigint_print(bigint_iadd(&bi, addend2));
+    BigInt dst, x, y;
+    log_traceargs("addend1=%i, addend2=%i", addend1, addend2);
+    dst = bigint_new(8);
+    x   = bigint_set_int(addend1);
+    y   = bigint_set_int(addend2);
+
+    bigint_add(&dst, &x, &y);
+    bigint_print(&dst);
     printfln("expected: %i + %i = %i", addend1, addend2, addend1 + addend2);
+
+    bigint_free(&dst);
+    bigint_free(&x);
+    bigint_free(&y);
 }
 
-static void test_isub(int minuend, int subtrahend)
+static void test_sub(int minuend, int subtrahend)
 {
-    BigInt bi = bigint_from_int(minuend);
-    log_tracef("%s(minued=%i, subtrahend=%i)", __func__, minuend, subtrahend);
-    bigint_print(bigint_isub(&bi, subtrahend));
+    BigInt dst, x, y;
+    log_traceargs("minued=%i, subtrahend=%i", minuend, subtrahend);
+    dst = bigint_new(8);
+    x   = bigint_set_int(minuend);
+    y   = bigint_set_int(subtrahend);
+
+    bigint_sub(&dst, &x, &y);
+    bigint_print(&dst);
     printfln("expected: %i - %i = %i", minuend, subtrahend, minuend - subtrahend);
+
+    bigint_free(&dst);
+    bigint_free(&x);
+    bigint_free(&y);
 }
 
 int main(void)
 {
-    log_traceln("trace!");
-    log_debugln("debug!");
-    log_warnln("warning!");
-    log_fatalln("fatal!");
+    log_debugln("NOTE: Simple addition");
+    test_add(1, 4);        //    5
+    test_add(9, 9);        //   18
+    test_add(13, 14);      //   27
+    test_add(33, 99);      //  132
+    test_add(1234, 5678);  // 6912
+    test_add(5678, 1234);  // 6912
 
-    // iadd_tests();
-    test_iadd(1, 4);        //    5
-    test_iadd(9, 9);        //   18
-    test_iadd(13, 14);      //   27
-    test_iadd(33, 99);      //  132
-    test_iadd(1234, 5678);  // 6912
-    test_iadd(5678, 1234);  // 6912
-
-    test_isub(8, 4);      //  4
-    test_isub(4, 8);      // -4
-    test_isub(10, 4);     //  6
-    test_isub(95, 24);    // 71
-    test_isub(153, 78);   // 75
-    test_isub(9004, 297); // 8707
+    log_debugln("NOTE: Simple subtraction");
+    test_sub(8, 4);      //  4
+    test_sub(4, 8);      // -4
+    test_sub(10, 4);     //  6
+    test_sub(95, 24);    // 71
+    test_sub(153, 78);   // 75
+    test_sub(9004, 297); // 8707
     
-    // Breakage starts here, because we don't handle the cases where the minuend
-    // is smaller than the subtrahend.
-    test_isub(11, 109);   // -98
-    test_isub(251, 367);  // -116
-    test_isub(251, 3670); // -3419
+    // log_debugln("NOTE: Subtraction breaks here");
+    test_sub(11, 109);   // -98
+    test_sub(251, 367);  // -116
+    test_sub(251, 3670); // -3419
     return 0;
 }
 

@@ -4,24 +4,31 @@
 #include "common.h"
 
 typedef struct BigInt BigInt;
-typedef i8 digit;
+typedef unsigned char digit;
 
-#define BIGINT_BASE     10
-#define BIGINT_BUFSIZE  16
+#define BIGINT_BASE   10
 
 struct BigInt {
-    size  length;
-    size  capacity;
-    digit digits[BIGINT_BUFSIZE];
+    size   length;
+    size   capacity;
+    bool   negative;
+    digit *digits;
 };
 
 void   bigint_print(const BigInt *self);
-BigInt bigint_from_int(int n);
-BigInt bigint_from_string(const char *s, size len);
-BigInt bigint_from_cstring(const char *cstr);
+BigInt bigint_set_int(int n);
+BigInt bigint_set_string(const char *s, size len);
+BigInt bigint_set_cstring(const char *cstr);
 
-BigInt *bigint_iadd(BigInt *self, int addend);
-BigInt *bigint_isub(BigInt *self, int subtrahend);
+/**
+ * @brief   Compares the lengths and digits of `x` and `y`.
+ *
+ * @return  If x == y, 0. If x > y, +1. If x < y, -1.
+ */
+int  bigint_compare(const BigInt *x, const BigInt *y);
+void bigint_clear(BigInt *self);
+void bigint_add(BigInt *dst, const BigInt *x, const BigInt *y);
+void bigint_sub(BigInt *dst, const BigInt *x, const BigInt *y);
 
 #ifdef BIGINT_INCLUDE_IMPLEMENTATION
 
@@ -31,11 +38,30 @@ BigInt *bigint_isub(BigInt *self, int subtrahend);
 /// local
 #include "log.h"
 
-#define WARN_RESIZE(self)   log_warnf("Need resize (length=%td, capacity=%td)", \
-                                      (self)->length, (self)->capacity)
 #define WARN_INDEX(i)       log_warnf("Invalid index '%td'.", (i))
 #define WARN_DIGIT(d)       log_warnf("Invalid digit '%i'.", (d))
 #define WARN_POP()          log_warnln("Nothing to pop.")
+
+static void bigint_resize(BigInt *self, size newcap)
+{
+    // No resize needed or would need to shrink?
+    log_traceargs("newcap=%td", newcap);
+    if (newcap <= self->capacity)
+        return;
+    size   newsz  = array_sizeof(self->digits[0], newcap);
+    digit *newbuf = cast(digit*, realloc(self->digits, newsz));
+    if (!newbuf) {
+        log_fatalf("allocation failed: requested %td bytes", newsz);
+        abort();
+    }
+    self->capacity = newcap;
+    self->digits   = newbuf;
+}
+
+static void bigint_grow(BigInt *self)
+{
+    bigint_resize(self, self->capacity * 2);
+}
 
 static bool check_digit(digit dgt)
 {
@@ -55,9 +81,8 @@ static digit read_at(const BigInt *self, size idx)
 
 static bool write_at(BigInt *self, size idx, digit dgt)
 {
-    if (!check_index(self, idx)) {
-        WARN_INDEX(idx);
-        return false;
+    if (idx >= self->capacity) {
+        bigint_grow(self);
     } else if (!check_digit(dgt)) {
         WARN_DIGIT(dgt);
         return false;
@@ -80,10 +105,8 @@ static bool write_at(BigInt *self, size idx, digit dgt)
  */
 static bool push_left(BigInt *self, digit dgt)
 {
-    // TODO: Dynamically grow buffer?
     if (self->length >= self->capacity) {
-        WARN_RESIZE(self);
-        return false;
+        bigint_grow(self);
     } else if (!check_digit(dgt)) {
         WARN_DIGIT(dgt);
         return false;
@@ -119,10 +142,9 @@ static digit pop_left(BigInt *self)
  */
 static bool shift_left1(BigInt *self)
 {
-    log_tracecall();
+    log_tracevoid();
     if (self->length >= self->capacity) {
-        WARN_RESIZE(self);
-        return false;
+        bigint_grow(self);
     }
     // {4,3,2,1} to {4,3,2,1,0}
     self->length++;
@@ -138,7 +160,7 @@ static bool shift_left1(BigInt *self)
 
 static bool push_right(BigInt *self, digit dgt)
 {
-    log_tracecall();
+    log_traceargs("dgt=%i", dgt);
     if (check_digit(dgt) && shift_left1(self)) {
         log_debugf("digits[0] = %i", dgt);
         self->digits[0] = dgt;
@@ -175,22 +197,74 @@ static digit pop_right(BigInt *self)
     return dgt;
 }
 
-static void bigint_init(BigInt *self)
+static void trim_left(BigInt *self)
 {
-    log_tracecall();
-    self->length   = 0;
-    self->capacity = array_countof(self->digits);
-    memset(self->digits, 0, sizeof(self->digits));
+    // Clean up leading 0's
+    for (size i = self->length - 1; 0 <= i && i < self->capacity; i--) {
+        // No more leading 0's?
+        if (read_at(self, i) != 0)
+            break;
+        pop_left(self);
+    }
 }
 
-BigInt bigint_from_int(int n)
+static size next_pow2(size n)
+{
+    size p = 1;
+    while (p < n)
+        p *= 2;
+    return p;
+}
+
+BigInt bigint_new(size cap)
 {
     BigInt self;
-    log_tracecall();
-    bigint_init(&self);
+    cap = next_pow2(cap);
+    log_traceargs("cap=%td", cap);
+    self.length   = 0;
+    self.capacity = 0;
+    self.negative = false;
+    self.digits   = nullptr;
+    bigint_resize(&self, cap);
+    bigint_clear(&self);
+    return self;
+}
+
+void bigint_free(BigInt *self)
+{
+    free(self->digits);
+}
+
+void bigint_clear(BigInt *self)
+{
+    size sz = array_sizeof(self->digits[0], self->capacity);
+    // memset on NULL is a bad idea
+    if (self->digits && sz > 0)
+        memset(self->digits, 0, sz);
+    self->length = 0;
+}
+
+static size count_digits(int value)
+{
+    int count = 0;
+    while (value != 0) {
+        count++;
+        value /= BIGINT_BASE;
+    }
+    return count;
+}
+
+BigInt bigint_set_int(int n)
+{
+    BigInt self;
+    log_traceargs("n=%i", n);
+    self = bigint_new(count_digits(n));
+    
+    if (n < 0)
+        self.negative = true;
 
     // 13 / 10 = 1.3 = 1
-    for (int it = n; it > 0; it /= BIGINT_BASE) {
+    for (int it = n; it != 0; it /= BIGINT_BASE) {
         digit dgt = it % BIGINT_BASE; // 13 % 10 = 3
         push_left(&self, dgt);
     }
@@ -198,126 +272,156 @@ BigInt bigint_from_int(int n)
     return self;
 }
 
-BigInt bigint_from_cstring(const char *cstr)
+BigInt bigint_set_cstring(const char *cstr)
 {
-    return bigint_from_string(cstr, strlen(cstr));
+    return bigint_set_string(cstr, strlen(cstr));
 }
 
-BigInt bigint_from_string(const char *s, size len)
+BigInt bigint_set_string(const char *s, size len)
 {
     BigInt self;
-    log_tracecall();
-    bigint_init(&self);
+    log_traceargs("len=%td", len);
+    self = bigint_new(len);
+
     // Iterate string in reverse to go from smallest place value to largest.
-    for (size i = len - 1; i >= 0; i--) {
+    for (size i = len - 1; 0 <= i && i < len; i--) {
         char ch = s[i];
         // TODO: Parse better than this
-        if (isdigit(ch))
+        if (ch == '-')
+            self.negative = !self.negative;
+        else if (isdigit(ch))
             push_left(&self, ch - '0'); // We assume ASCII
     }
-    // Clean up leading 0's
-    for (size i = self.length - 1; 0 <= i && i < self.capacity; i--) {
-        // No more leading 0's?
-        if (read_at(&self, i) != 0)
-            break;
-        pop_left(&self);
-    }
+    trim_left(&self);
     return self;
 }
 
-typedef struct Pair {
-    size  index;
-    digit digit;
-} Pair;
-
-// Addition of any 2 valid digits must be in the range 0..=(BASE-1) * 2
-static bool add_at(BigInt *self, size index, digit dgt)
+static size greater_length(const BigInt *x, const BigInt *y)
 {
-    Pair  add = {index, dgt};
-    digit carry;
-    log_tracecall();
-    for (carry = 1;
-         carry != 0;
-         add.index++, add.digit = carry)
-    {
-        digit sum = read_at(self, add.index) + add.digit;
+    return (x->length > y->length) ? x->length : y->length;
+}
+
+static size lesser_length(const BigInt *x, const BigInt *y)
+{
+    return !greater_length(x, y) ? x->length : y->length;
+}
+
+void bigint_add(BigInt *dst, const BigInt *x, const BigInt *y)
+{
+    log_tracevoid();
+    size len = greater_length(x, y) + 1;
+    bigint_resize(dst, len);
+    bigint_clear(dst);
+    digit carry = 0;
+    for (size i = 0; 0 <= i && i < len; i++) {
+        digit sum = read_at(x, i) + read_at(y, i) + carry;
         if (sum >= BIGINT_BASE) {
-            carry = sum / BIGINT_BASE; // Value of higher place value
-            sum   = sum % BIGINT_BASE; // Pop higher place value
+            carry = sum / BIGINT_BASE; // Value of the higher place value.
+            sum   = sum % BIGINT_BASE; // 'Pop' the higher place value.
         } else {
             carry = 0;
         }
-        if (!write_at(self, add.index, sum))
-            return false;
+        write_at(dst, i, sum);
     }
-    return true;
+    trim_left(dst);
 }
 
-BigInt *bigint_iadd(BigInt *self, int addend)
+int bigint_compare(const BigInt *x, const BigInt *y)
 {
-    // Add 1 digit at a time, going from lowest place value to highest.
-    // If addend is 0 to begin with then we don't need to do anything.
-    log_tracecall();
-    if (addend < 0)
-        return bigint_isub(self, addend);
-    for (size idx = 0; addend > 0; ++idx, addend /= BIGINT_BASE)
-        add_at(self, idx, addend % BIGINT_BASE);
-    return self;
-}
-
-// Try to find the first digit in `self` at offset `idx` we can carry from.
-// We assume that there are NO leading (leftwards) zeroes.
-static bool need_borrow_at(BigInt *self, size idx)
-{
-    log_tracecall();
-    for (size i = idx + 1; i < self->length; i++) {
-        // Assuming no leading zeroes, we can converted a 0 to a 9 since
-        // we will still borrow from a nonzero later down the line.
-        digit carry = read_at(self, i);
-        digit diff  = ((carry == 0) ? BIGINT_BASE : carry) - 1;
-        if (carry == 0) {
-            write_at(self, i, diff);
-            log_debugf("digits[%td] = %i", i, diff);
-            continue;
+    if (x->length != y->length) {
+        bool gt = x->length > y->length;
+        // One is negative but not the other?
+        if (x->negative != y->negative) {
+            // If `y` is negative we assume +x > -y, else assume -x < +y.
+            gt = y->negative;
+            return (gt) ? -1 : +1;
         }
-        // Otherwise, we can directly borrow from this next digit.
-        // We break here because we don't need to do anymore.
+        // Both negative? E.g. -10 and -100
+        if (x->negative && y->negative)
+            return (gt) ? -1 : +1;
+        else
+            return (gt) ? +1 : -1;
+    }
+    for (size i = 0; 0 <= i && i < x->length; i++) {
+        digit dx = read_at(x, i);
+        digit dy = read_at(y, i);
+        if (dx != dy) {
+            return (dx > dy) ? +1 : -1;
+        }
+    }
+    return 0;
+}
+
+static void copy_digits(BigInt *dst, const BigInt *other)
+{
+    size len = other->length;
+    size cap = other->capacity;
+    log_tracevoid();
+
+    dst->length = len;
+    bigint_resize(dst, cap);
+    for (size i = 0; 0 <= i && i < len; i++)
+        dst->digits[i] = other->digits[i];
+}
+
+static bool borrow_needed(BigInt *self, size idx)
+{
+    size start = idx + 1;
+    log_traceargs("idx=%td", idx);
+    for (size i = start; start <= i && i < self->length; i++) {
+        digit dgt  = read_at(self, i);
+        digit diff = ((dgt == 0) ? BIGINT_BASE : dgt) - 1;
+        log_debugf("digits[%td]=%i, diff=%i", i, dgt, diff);
         write_at(self, i, diff);
-        log_debugf("digits[%td] = %i", i, diff);
-        if (carry - 1 == 0) 
-            self->length -= 1;
+        // We assume somewhere down the line is a nonzero.
+        if (dgt == 0)
+            continue;
+        // Borrowing caused this digit to be zero, so "erase" or "pop" it.
+        if (diff == 0)
+            pop_left(self);
         return true;
     }
     return false;
 }
 
-BigInt *bigint_isub(BigInt *self, int subtrahend)
+void bigint_sub(BigInt *dst, const BigInt *x, const BigInt *y)
 {
-    log_tracecall();
-    if (subtrahend < 0)
-        return bigint_iadd(self, subtrahend);
-    for (size idx = 0; subtrahend > 0; ++idx, subtrahend /= BIGINT_BASE) {
-        digit mind = read_at(self, idx);       // digit-based minuend
-        digit sub  = subtrahend % BIGINT_BASE; // digit-based subtrahend
-        log_debugf("[%td]: minuend=%i, subtrahend=%i",
-                   idx, mind, sub);
-        if (mind < sub && need_borrow_at(self, idx)) {
-            mind += BIGINT_BASE;
-        }
-        write_at(self, idx, mind - sub);
+    log_tracevoid();
+    // The trick to negate a larger number from a smaller one is to swap them,
+    // then negate the difference.
+    if (bigint_compare(x, y) < 0) {
+        const BigInt *tmp = x;
+        x = y;
+        y = tmp;
+        dst->negative = true;
     }
-    return self;
+    size len = lesser_length(x, y);
+    // Copy the digits of the minuend in case we need to modify when borrowing.
+    copy_digits(dst, x);
+    for (size i = 0; 0 <= i && i < len; i++) {
+        digit mind = read_at(dst, i);
+        digit subt = read_at(y, i);
+        if (mind < subt) {
+            if (borrow_needed(dst, i)) {
+                mind += BIGINT_BASE;
+            } else {
+                digit tmp = mind;
+                mind = subt;
+                subt = tmp;
+                dst->negative = true;
+            }
+        }
+        write_at(dst, i, mind - subt);
+    }
 }
 
 void bigint_print(const BigInt *self)
 {
-    size len = self->length;
-    size cap = self->capacity;
-    printf("digits=");
-    for (size i = len - 1; 0 <= i && i < cap; i--) {
+    if (self->negative)
+        printf("-");
+    for (size i = self->length - 1; 0 <= i && i < self->capacity; i--)
         printf("%i", self->digits[i]);
-    }
-    printf(", length=%td, capacity=%td\n", len, cap);
+    printf("\n");
 }
 
 #endif  // BIGINT_INCLUDE_IMPLEMENTATION

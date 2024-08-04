@@ -16,7 +16,8 @@ void log_writer(enum LogLevel lvl, const char *file, int line, const char *fmt, 
 #define log_fatalf(fmt, ...)    log_writer(LOG_FATAL, __FILE__, __LINE__, fmt "\n", __VA_ARGS__)
 #define log_debugln(s)          log_debugf("%s", s)
 #define log_traceln(s)          log_tracef("%s", s)
-#define log_tracecall()         log_tracef("%s()", __func__)
+#define log_tracevoid()         log_tracef("%s()", __func__)
+#define log_traceargs(fmt, ...) log_tracef("%s(" fmt ")", __func__, __VA_ARGS__)
 #define log_warnln(s)           log_warnf("%s", s)
 #define log_fatalln(s)          log_fatalf("%s", s)
 
@@ -29,13 +30,11 @@ void log_writer(enum LogLevel lvl, const char *file, int line, const char *fmt, 
 #include "common.h"
 #include "ansi.h"
 
-struct LogHeader {
+// Maps `enum LogLevel` to `const char*`.
+static const struct {
     const char    *text;
     enum AnsiColor color;
-};
-
-// Maps `enum LogLevel` to `const char*`.
-static const struct LogHeader LOGHEADERS[] = {
+} LOGHEADERS[] = {
     [LOG_TRACE] = {"[TRACE]",   ANSI256_PLUM3},
     [LOG_DEBUG] = {"[DEBUG]",   ANSI256_LIGHTCYAN3},
     [LOG_WARN]  = {"[WARN]",    ANSI256_NAVAJOWHITE1},
@@ -62,7 +61,7 @@ void log_writer(enum LogLevel lvl, const char *file, int line, const char *fmt, 
 
     // Silly but it works
     ansi_printfg_256color(stderr, LOGHEADERS[lvl].color, "%-8s", LOGHEADERS[lvl].text);
-    ansi_printfg_256color(stderr, ANSI256_PALETURQUOISE1, "%s(%i): ", name, line);
+    ansi_printfg_256color(stderr, ANSI256_PALETURQUOISE1, "%s:%i: ", name, line);
     vfprintf(stderr, fmt, args);
     va_end(args);
 }
