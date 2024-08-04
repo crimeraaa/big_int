@@ -1,29 +1,53 @@
 /// local
+#define ANSI_INCLUDE_IMPLEMENTATION
 #define LOG_INCLUDE_IMPLEMENTATION
 #define BIGINT_INCLUDE_IMPLEMENTATION
+#include "ansi.h"
 #include "bigint.h"
 
-static void simple_digit_tests(void)
+static void test_iadd(int addend1, int addend2)
 {
-    BigInt a = bigint_from_int(0);
-    
-    bigint_print(&a);
-    bigint_iadd(&a, 1);     bigint_print(&a); // 1
-    bigint_iadd(&a, 3);     bigint_print(&a); // 4
-    bigint_iadd(&a, 11);    bigint_print(&a); // 15
-    bigint_iadd(&a, 1234);  bigint_print(&a); // 1249
-    
-    a = bigint_from_cstring("099");
-    
-    bigint_print(&a);
-    bigint_iadd(&a, 33);    bigint_print(&a); // 132
-    bigint_iadd(&a, 99);    bigint_print(&a); // 231
-    bigint_iadd(&a, 678);   bigint_print(&a); // 909
+    BigInt bi = bigint_from_int(addend1);
+    log_tracef("%s(addend1=%i, addend2=%i)", __func__, addend1, addend2);
+    bigint_print(bigint_iadd(&bi, addend2));
+    printfln("expected: %i + %i = %i", addend1, addend2, addend1 + addend2);
+}
+
+static void test_isub(int minuend, int subtrahend)
+{
+    BigInt bi = bigint_from_int(minuend);
+    log_tracef("%s(minued=%i, subtrahend=%i)", __func__, minuend, subtrahend);
+    bigint_print(bigint_isub(&bi, subtrahend));
+    printfln("expected: %i - %i = %i", minuend, subtrahend, minuend - subtrahend);
 }
 
 int main(void)
 {
-    simple_digit_tests();
+    log_traceln("trace!");
+    log_debugln("debug!");
+    log_warnln("warning!");
+    log_fatalln("fatal!");
+
+    // iadd_tests();
+    test_iadd(1, 4);        //    5
+    test_iadd(9, 9);        //   18
+    test_iadd(13, 14);      //   27
+    test_iadd(33, 99);      //  132
+    test_iadd(1234, 5678);  // 6912
+    test_iadd(5678, 1234);  // 6912
+
+    test_isub(8, 4);      //  4
+    test_isub(4, 8);      // -4
+    test_isub(10, 4);     //  6
+    test_isub(95, 24);    // 71
+    test_isub(153, 78);   // 75
+    test_isub(9004, 297); // 8707
+    
+    // Breakage starts here, because we don't handle the cases where the minuend
+    // is smaller than the subtrahend.
+    test_isub(11, 109);   // -98
+    test_isub(251, 367);  // -116
+    test_isub(251, 3670); // -3419
     return 0;
 }
 

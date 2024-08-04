@@ -20,8 +20,8 @@ BigInt bigint_from_int(int n);
 BigInt bigint_from_string(const char *s, size len);
 BigInt bigint_from_cstring(const char *cstr);
 
-void   bigint_iadd(BigInt *self, int addend);
-void   bigint_isub(BigInt *self, int subtrahend);
+BigInt *bigint_iadd(BigInt *self, int addend);
+BigInt *bigint_isub(BigInt *self, int subtrahend);
 
 #ifdef BIGINT_INCLUDE_IMPLEMENTATION
 
@@ -36,32 +36,6 @@ void   bigint_isub(BigInt *self, int subtrahend);
 #define WARN_INDEX(i)       log_warnf("Invalid index '%td'.", (i))
 #define WARN_DIGIT(d)       log_warnf("Invalid digit '%i'.", (d))
 #define WARN_POP()          log_warnln("Nothing to pop.")
-
-static const digit DIGIT_SUMS[BIGINT_BASE][BIGINT_BASE] = {
-    {0,  1,  2,  3,  4,  5,  6,  7,  8,  9},
-    {1,  2,  3,  4,  5,  6,  7,  8,  9, 10},
-    {2,  3,  4,  5,  6,  7,  8,  9, 10, 11},
-    {3,  4,  5,  6,  7,  8,  9, 10, 11, 12},
-    {4,  5,  6,  7,  8,  9, 10, 11, 12, 13},
-    {5,  6,  7,  8,  9, 10, 11, 12, 13, 14},
-    {6,  7,  8,  9, 10, 11, 12, 13, 14, 15},
-    {7,  8,  9, 10, 11, 12, 13, 14, 15, 16},
-    {8,  9, 10, 11, 12, 13, 14, 15, 16, 17},
-    {9, 10, 11, 12, 13, 14, 15, 16, 17, 18},
-};
-
-static const digit DIGIT_DIFFS[BIGINT_BASE][BIGINT_BASE] = {
-    {0, -1, -2, -3, -4, -5, -6, -7, -8, -9},
-    {1,  0, -1, -2, -3, -4, -5, -6, -7, -8},
-    {2,  1,  0, -1, -2, -3, -4, -5, -6, -7},
-    {3,  2,  1,  0, -1, -2, -3, -4, -5, -6},
-    {4,  3,  2,  1,  0, -1, -2, -3, -4, -5},
-    {5,  4,  3,  2,  1,  0, -1, -2, -3, -4},
-    {6,  5,  4,  3,  2,  1,  0, -1, -2, -3},
-    {7,  6,  5,  4,  3,  2,  1,  0, -1, -2},
-    {8,  7,  6,  5,  4,  3,  2,  1,  0, -1},
-    {9,  8,  7,  6,  5,  4,  3,  2,  1,  0},
-};
 
 static bool check_digit(digit dgt)
 {
@@ -279,28 +253,60 @@ static bool add_at(BigInt *self, size index, digit dgt)
     return true;
 }
 
-void bigint_iadd(BigInt *self, int addend)
+BigInt *bigint_iadd(BigInt *self, int addend)
 {
     // Add 1 digit at a time, going from lowest place value to highest.
     // If addend is 0 to begin with then we don't need to do anything.
-    Pair dst = {0, 0};
     log_tracecall();
-    for (int next = addend; next > 0; ++dst.index, next /= BIGINT_BASE) {
-        dst.digit = next % BIGINT_BASE;
-        add_at(self, dst.index, dst.digit);
-    }
+    if (addend < 0)
+        return bigint_isub(self, addend);
+    for (size idx = 0; addend > 0; ++idx, addend /= BIGINT_BASE)
+        add_at(self, idx, addend % BIGINT_BASE);
+    return self;
 }
 
-void bigint_isub(BigInt *self, int subtrahend)
+// Try to find the first digit in `self` at offset `idx` we can carry from.
+// We assume that there are NO leading (leftwards) zeroes.
+static bool need_borrow_at(BigInt *self, size idx)
 {
-    Pair dst = {0, 0};
     log_tracecall();
-    for (int next = subtrahend; next > 0; ++dst.index, next /= BIGINT_BASE) {
-        Pair sub  = {dst.index, next % BIGINT_BASE};
-        dst.digit = read_at(self, dst.index);
-        log_debugf("[%td]: minued=%i, subtrahend=%i",
-                   dst.index, dst.digit, sub.digit);
+    for (size i = idx + 1; i < self->length; i++) {
+        // Assuming no leading zeroes, we can converted a 0 to a 9 since
+        // we will still borrow from a nonzero later down the line.
+        digit carry = read_at(self, i);
+        digit diff  = ((carry == 0) ? BIGINT_BASE : carry) - 1;
+        if (carry == 0) {
+            write_at(self, i, diff);
+            log_debugf("digits[%td] = %i", i, diff);
+            continue;
+        }
+        // Otherwise, we can directly borrow from this next digit.
+        // We break here because we don't need to do anymore.
+        write_at(self, i, diff);
+        log_debugf("digits[%td] = %i", i, diff);
+        if (carry - 1 == 0) 
+            self->length -= 1;
+        return true;
     }
+    return false;
+}
+
+BigInt *bigint_isub(BigInt *self, int subtrahend)
+{
+    log_tracecall();
+    if (subtrahend < 0)
+        return bigint_iadd(self, subtrahend);
+    for (size idx = 0; subtrahend > 0; ++idx, subtrahend /= BIGINT_BASE) {
+        digit mind = read_at(self, idx);       // digit-based minuend
+        digit sub  = subtrahend % BIGINT_BASE; // digit-based subtrahend
+        log_debugf("[%td]: minuend=%i, subtrahend=%i",
+                   idx, mind, sub);
+        if (mind < sub && need_borrow_at(self, idx)) {
+            mind += BIGINT_BASE;
+        }
+        write_at(self, idx, mind - sub);
+    }
+    return self;
 }
 
 void bigint_print(const BigInt *self)

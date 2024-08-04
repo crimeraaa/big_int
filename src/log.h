@@ -22,42 +22,49 @@ void log_writer(enum LogLevel lvl, const char *file, int line, const char *fmt, 
 
 #ifdef LOG_INCLUDE_IMPLEMENTATION
 
-/// local
-#include "common.h"
-
 /// standard
 #include <stdarg.h>
 
+/// local
+#include "common.h"
+#include "ansi.h"
+
+struct LogHeader {
+    const char    *text;
+    enum AnsiColor color;
+};
+
 // Maps `enum LogLevel` to `const char*`.
-static const char *const LOG_LEVEL_STRINGS[] = {
-    [LOG_TRACE] = "TRACE",
-    [LOG_DEBUG] = "DEBUG",
-    [LOG_WARN]  = "WARN",
-    [LOG_FATAL] = "FATAL",
+static const struct LogHeader LOGHEADERS[] = {
+    [LOG_TRACE] = {"[TRACE]",   ANSI256_PLUM3},
+    [LOG_DEBUG] = {"[DEBUG]",   ANSI256_LIGHTCYAN3},
+    [LOG_WARN]  = {"[WARN]",    ANSI256_NAVAJOWHITE1},
+    [LOG_FATAL] = {"[FATAL]",   ANSI256_SALMON1},
 };
 
 static const char *get_filename_only(const char *path)
 {
     const char *name = strrchr(path, '/');
-    // Don't have UNIX-style separator, try Windows-style separator.
+#ifdef _WIN32
+    // If on Windows and don't have UNIX-style separator try Windows-style separator.
     if (!name)
         name = strrchr(path, '\\');
+#endif
     // Point to character AFTER the separator if we have one.
     return (name) ? name + 1 : path;
 }
 
 void log_writer(enum LogLevel lvl, const char *file, int line, const char *fmt, ...)
 {
-    va_list args;
-    char    hdr[16];
-    int     len = sprintf(hdr, "[%s]", LOG_LEVEL_STRINGS[lvl]);
-    hdr[len] = '\0';
-    
+    va_list     args;
+    const char *name = get_filename_only(file);
     va_start(args, fmt);
-    // May be wasteful
-    fprintf(stderr, "%-8s %s(%i): ", hdr, get_filename_only(file), line);
+
+    // Silly but it works
+    ansi_printfg_256color(stderr, LOGHEADERS[lvl].color, "%-8s", LOGHEADERS[lvl].text);
+    ansi_printfg_256color(stderr, ANSI256_PALETURQUOISE1, "%s(%i): ", name, line);
     vfprintf(stderr, fmt, args);
     va_end(args);
 }
 
-#endif
+#endif  // LOG_INCLUDE_IMPLEMENTATION
