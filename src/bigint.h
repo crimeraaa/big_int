@@ -1,24 +1,24 @@
 #pragma once
 
 /// local
+#include "allocator.h"
 #include "common.h"
 
 typedef struct BigInt BigInt;
-typedef unsigned char digit;
 
 #define BIGINT_BASE   10
 
-struct BigInt {
-    size   length;
-    size   capacity;
-    bool   negative;
-    digit *digits;
-};
+void    bigint_library_free(void);
+void    bigint_library_set_allocator(AllocFn fn, void *ctx);
+void    bigint_library_set_handler(HandlerFn fn, void *ctx);
 
-void   bigint_print(const BigInt *self);
-BigInt bigint_set_int(int n);
-BigInt bigint_set_string(const char *s, size len);
-BigInt bigint_set_cstring(const char *cstr);
+BigInt *bigint_new(size cap);
+void    bigint_free(BigInt **self);
+
+void    bigint_print(const BigInt *self);
+BigInt *bigint_set_int(int n);
+BigInt *bigint_set_string(const char *s, size len);
+BigInt *bigint_set_cstring(const char *cstr);
 
 /**
  * @brief   Compares the lengths and digits of `x` and `y`.
@@ -36,11 +36,50 @@ void bigint_sub(BigInt *dst, const BigInt *x, const BigInt *y);
 #include <ctype.h>
 
 /// local
+#define LOG_INCLUDE_IMPLEMENTATION
 #include "log.h"
 
-#define WARN_INDEX(i)       log_warnf("Invalid index '%td'.", (i))
-#define WARN_DIGIT(d)       log_warnf("Invalid digit '%i'.", (d))
-#define WARN_POP()          log_warnln("Nothing to pop.")
+#define WARN_DIGIT(d)   log_warnf("Invalid digit '%i'.", (d))
+#define WARN_POP()      log_warnln("Nothing to pop.")
+
+typedef unsigned char digit;
+
+struct BigInt {
+    BigInt *prev;
+    BigInt *next;
+    size    length;
+    size    capacity;
+    bool    negative;
+    digit  *digits;
+};
+
+static void *stdc_allocate(void *hint, size oldsz, size newsz, void *ctx)
+{
+    unused(oldsz, ctx);
+    if (newsz == 0) {
+        free(hint);
+        return nullptr;
+    }
+    return realloc(hint, newsz);
+}
+
+static void stdc_handler(const char *msg, size reqsz, void *ctx)
+{
+    unused(ctx);
+    log_fatalf("%s (requested %td bytes)", msg, reqsz);
+    log_flush();
+    abort();
+}
+
+static struct {
+    BigInt   *active; // Top of a doubly linked list of active BigInt's.
+    BigInt   *free;   // Top of a doubly linked list of free BigInt's.
+    Allocator allocator;
+} bi_state = {
+    /* active    */ nullptr,
+    /* free      */ nullptr,
+    /* allocator */ {&stdc_allocate, &stdc_handler, nullptr, nullptr}
+};
 
 static void bigint_resize(BigInt *self, size newcap)
 {
@@ -48,12 +87,9 @@ static void bigint_resize(BigInt *self, size newcap)
     log_traceargs("newcap=%td", newcap);
     if (newcap <= self->capacity)
         return;
-    size   newsz  = array_sizeof(self->digits[0], newcap);
-    digit *newbuf = cast(digit*, realloc(self->digits, newsz));
-    if (!newbuf) {
-        log_fatalf("allocation failed: requested %td bytes", newsz);
-        abort();
-    }
+    size   oldcap  = self->capacity;
+    digit *oldbuf  = self->digits;
+    digit *newbuf  = allocator_realloc(digit, oldbuf, oldcap, newcap, &bi_state.allocator);
     self->capacity = newcap;
     self->digits   = newbuf;
 }
@@ -216,23 +252,93 @@ static size next_pow2(size n)
     return p;
 }
 
-BigInt bigint_new(size cap)
+static void link_list(BigInt **list, BigInt *ptr)
 {
-    BigInt self;
-    cap = next_pow2(cap);
-    log_traceargs("cap=%td", cap);
-    self.length   = 0;
-    self.capacity = 0;
-    self.negative = false;
-    self.digits   = nullptr;
-    bigint_resize(&self, cap);
-    bigint_clear(&self);
+    ptr->prev = *list;
+    ptr->next = nullptr;
+    // If we're not at the base of the list, we are the previous node's next.
+    if (*list)
+        (*list)->next = ptr;
+    // New top of list.
+    *list = ptr;
+}
+
+static void unlink_list(BigInt **list, BigInt *ptr)
+{
+    // `ptr` is the top of the list?
+    if (ptr == *list) {
+        *list = ptr->prev;
+        return;
+    }
+    // `ptr` is in the middle, so remove links to it from the child nodes.
+    if (ptr->prev)
+        ptr->prev->next = ptr->next;
+    if (ptr->next)
+        ptr->next->prev = ptr->prev;
+}
+
+static void free_list(BigInt **list)
+{
+    BigInt *next;
+    for (BigInt *it = *list; it != nullptr; it = next) {
+        next = it->next;
+        allocator_free(digit, it->digits, it->capacity, &bi_state.allocator);
+        allocator_free(BigInt, it, 1, &bi_state.allocator);
+    }
+    *list = nullptr;
+}
+
+static BigInt *find_free_or_allocate(void)
+{
+    BigInt *self = bi_state.free;
+    if (self)
+        unlink_list(&bi_state.free, self);
+    else
+        self = allocator_alloc(BigInt, 1, &bi_state.allocator);
+    link_list(&bi_state.active, self);
     return self;
 }
 
-void bigint_free(BigInt *self)
+BigInt *bigint_new(size cap)
 {
-    free(self->digits);
+    BigInt *self;
+    log_traceargs("cap=%td", cap);
+    cap  = next_pow2(cap);
+    self = find_free_or_allocate();
+    self->length   = 0;
+    self->capacity = 0;
+    self->negative = false;
+    self->digits   = nullptr;
+    bigint_resize(self, cap);
+    bigint_clear(self);
+    return self;
+}
+
+void bigint_free(BigInt **self)
+{
+    // log_traceargs("self=%p", *self);
+    unlink_list(&bi_state.active, *self);
+    link_list(&bi_state.free, *self);
+    *self = nullptr;
+}
+
+void bigint_library_set_allocator(AllocFn fn, void *ctx)
+{
+    bi_state.allocator.allocate_function = fn;
+    bi_state.allocator.allocate_context  = ctx;
+}
+
+void bigint_library_set_handler(HandlerFn fn, void *ctx)
+{
+    bi_state.allocator.handler_function = fn;
+    bi_state.allocator.handler_context  = ctx;
+}
+
+void bigint_library_free(void)
+{
+    log_tracevoid();
+    free_list(&bi_state.active);
+    free_list(&bi_state.free);
 }
 
 void bigint_clear(BigInt *self)
@@ -254,32 +360,32 @@ static size count_digits(int value)
     return count;
 }
 
-BigInt bigint_set_int(int n)
+BigInt *bigint_set_int(int n)
 {
-    BigInt self;
+    BigInt *self;
     log_traceargs("n=%i", n);
     self = bigint_new(count_digits(n));
     
     if (n < 0)
-        self.negative = true;
+        self->negative = true;
 
     // 13 / 10 = 1.3 = 1
     for (int it = n; it != 0; it /= BIGINT_BASE) {
         digit dgt = it % BIGINT_BASE; // 13 % 10 = 3
-        push_left(&self, dgt);
+        push_left(self, dgt);
     }
     
     return self;
 }
 
-BigInt bigint_set_cstring(const char *cstr)
+BigInt *bigint_set_cstring(const char *cstr)
 {
     return bigint_set_string(cstr, strlen(cstr));
 }
 
-BigInt bigint_set_string(const char *s, size len)
+BigInt *bigint_set_string(const char *s, size len)
 {
-    BigInt self;
+    BigInt *self;
     log_traceargs("len=%td", len);
     self = bigint_new(len);
 
@@ -288,11 +394,11 @@ BigInt bigint_set_string(const char *s, size len)
         char ch = s[i];
         // TODO: Parse better than this
         if (ch == '-')
-            self.negative = !self.negative;
+            self->negative = !self->negative;
         else if (isdigit(ch))
-            push_left(&self, ch - '0'); // We assume ASCII
+            push_left(self, ch - '0'); // We assume ASCII
     }
-    trim_left(&self);
+    trim_left(self);
     return self;
 }
 

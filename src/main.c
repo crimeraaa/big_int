@@ -1,20 +1,20 @@
 /// local
-#define ANSI_INCLUDE_IMPLEMENTATION
-#define LOG_INCLUDE_IMPLEMENTATION
+#define ALLOCATOR_INCLUDE_IMPLEMENTATION
+#include "allocator.h"
+
 #define BIGINT_INCLUDE_IMPLEMENTATION
-#include "ansi.h"
 #include "bigint.h"
 
 static void test_add(int addend1, int addend2)
 {
-    BigInt dst, x, y;
+    BigInt *dst, *x, *y;
     log_traceargs("addend1=%i, addend2=%i", addend1, addend2);
     dst = bigint_new(8);
     x   = bigint_set_int(addend1);
     y   = bigint_set_int(addend2);
 
-    bigint_add(&dst, &x, &y);
-    bigint_print(&dst);
+    bigint_add(dst, x, y);
+    bigint_print(dst);
     printfln("expected: %i + %i = %i", addend1, addend2, addend1 + addend2);
 
     bigint_free(&dst);
@@ -24,23 +24,24 @@ static void test_add(int addend1, int addend2)
 
 static void test_sub(int minuend, int subtrahend)
 {
-    BigInt dst, x, y;
+    BigInt *dst, *x, *y;
     log_traceargs("minued=%i, subtrahend=%i", minuend, subtrahend);
     dst = bigint_new(8);
     x   = bigint_set_int(minuend);
     y   = bigint_set_int(subtrahend);
 
-    bigint_sub(&dst, &x, &y);
-    bigint_print(&dst);
+    bigint_sub(dst, x, y);
+    bigint_print(dst);
     printfln("expected: %i - %i = %i", minuend, subtrahend, minuend - subtrahend);
-
-    bigint_free(&dst);
-    bigint_free(&x);
     bigint_free(&y);
+    bigint_free(&x);
+    bigint_free(&dst);
 }
 
 int main(void)
 {
+    atexit(&bigint_library_free);
+
     log_debugln("NOTE: Simple addition");
     test_add(1, 4);        //    5
     test_add(9, 9);        //   18

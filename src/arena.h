@@ -370,7 +370,7 @@ static void exit_errorfn(Arena *self, const char *msg, size req, void *ctx)
 {
     unused(self, ctx);
     log_fatalf("%s (requested %td bytes)", msg, req);
-    fflush(stderr);
+    log_flush();
     abort();
 }
 

@@ -9,6 +9,7 @@ enum LogLevel {
 
 // TODO: Allow writing to streams other than stderr? Allow for quiet?
 void log_writer(enum LogLevel lvl, const char *file, int line, const char *fmt, ...);
+void log_flush(void);
 
 #define log_debugf(fmt, ...)    log_writer(LOG_DEBUG, __FILE__, __LINE__, fmt "\n", __VA_ARGS__)
 #define log_tracef(fmt, ...)    log_writer(LOG_TRACE, __FILE__, __LINE__, fmt "\n", __VA_ARGS__)
@@ -27,6 +28,7 @@ void log_writer(enum LogLevel lvl, const char *file, int line, const char *fmt, 
 #include <stdarg.h>
 
 /// local
+#define ANSI_INCLUDE_IMPLEMENTATION
 #include "common.h"
 #include "ansi.h"
 
@@ -64,6 +66,11 @@ void log_writer(enum LogLevel lvl, const char *file, int line, const char *fmt, 
     ansi_printfg_256color(stderr, ANSI256_PALETURQUOISE1, "%s:%i: ", name, line);
     vfprintf(stderr, fmt, args);
     va_end(args);
+}
+
+void log_flush(void)
+{
+    fflush(stderr);
 }
 
 #endif  // LOG_INCLUDE_IMPLEMENTATION
