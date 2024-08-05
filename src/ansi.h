@@ -129,6 +129,7 @@ int ansi_sendcsi_(FILE *stream, int count, ...);
 int ansi_resetcsi(FILE *stream);
 int ansi_printfg_256color(FILE *stream, enum AnsiColor color, const char *fmt, ...);
 
+
 // Most: ESC[38;2;{r};{g};{b}m or ESC[48;2:{r};{g};{b};m]
 #define ansi_vargc(...) \
     x__xselect6(__VA_ARGS__, 5, 4, 3, 2, 1)

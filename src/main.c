@@ -1,8 +1,8 @@
 /// local
 #define ALLOCATOR_INCLUDE_IMPLEMENTATION
-#include "allocator.h"
-
+#define ANSI_INCLUDE_IMPLEMENTATION
 #define BIGINT_INCLUDE_IMPLEMENTATION
+#define LOG_INCLUDE_IMPLEMENTATION
 #include "bigint.h"
 
 static void test_add(int addend1, int addend2)

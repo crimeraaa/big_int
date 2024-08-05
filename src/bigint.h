@@ -36,7 +36,6 @@ void bigint_sub(BigInt *dst, const BigInt *x, const BigInt *y);
 #include <ctype.h>
 
 /// local
-#define LOG_INCLUDE_IMPLEMENTATION
 #include "log.h"
 
 #define WARN_DIGIT(d)   log_warnf("Invalid digit '%i'.", (d))
@@ -81,6 +80,10 @@ static struct {
     /* allocator */ {&stdc_allocate, &stdc_handler, nullptr, nullptr}
 };
 
+#define bi_new(...)     allocator_new(__VA_ARGS__, &bi_state.allocator)
+#define bi_realloc(...) allocator_realloc(__VA_ARGS__, &bi_state.allocator)
+#define bi_free(...)    allocator_free(__VA_ARGS__, &bi_state.allocator)
+
 static void bigint_resize(BigInt *self, size newcap)
 {
     // No resize needed or would need to shrink?
@@ -89,7 +92,7 @@ static void bigint_resize(BigInt *self, size newcap)
         return;
     size   oldcap  = self->capacity;
     digit *oldbuf  = self->digits;
-    digit *newbuf  = allocator_realloc(digit, oldbuf, oldcap, newcap, &bi_state.allocator);
+    digit *newbuf  = bi_realloc(digit, oldbuf, oldcap, newcap);
     self->capacity = newcap;
     self->digits   = newbuf;
 }
@@ -282,8 +285,8 @@ static void free_list(BigInt **list)
     BigInt *next;
     for (BigInt *it = *list; it != nullptr; it = next) {
         next = it->next;
-        allocator_free(digit, it->digits, it->capacity, &bi_state.allocator);
-        allocator_free(BigInt, it, 1, &bi_state.allocator);
+        bi_free(digit, it->digits, it->capacity);
+        bi_free(BigInt, it, 1);
     }
     *list = nullptr;
 }
@@ -294,7 +297,7 @@ static BigInt *find_free_or_allocate(void)
     if (self)
         unlink_list(&bi_state.free, self);
     else
-        self = allocator_alloc(BigInt, 1, &bi_state.allocator);
+        self = bi_new(BigInt, 1);
     link_list(&bi_state.active, self);
     return self;
 }
@@ -409,7 +412,7 @@ static size greater_length(const BigInt *x, const BigInt *y)
 
 static size lesser_length(const BigInt *x, const BigInt *y)
 {
-    return !greater_length(x, y) ? x->length : y->length;
+    return (x->length < y->length) ? x->length : y->length;
 }
 
 void bigint_add(BigInt *dst, const BigInt *x, const BigInt *y)
@@ -448,7 +451,8 @@ int bigint_compare(const BigInt *x, const BigInt *y)
         else
             return (gt) ? +1 : -1;
     }
-    for (size i = 0; 0 <= i && i < x->length; i++) {
+    // Iterate in reverse so we compare the most significant digits first.
+    for (size i = x->length - 1; 0 <= i && i < x->length; i--) {
         digit dx = read_at(x, i);
         digit dy = read_at(y, i);
         if (dx != dy) {
@@ -500,6 +504,8 @@ void bigint_sub(BigInt *dst, const BigInt *x, const BigInt *y)
         x = y;
         y = tmp;
         dst->negative = true;
+    } else {
+        dst->negative = false;
     }
     size len = lesser_length(x, y);
     // Copy the digits of the minuend in case we need to modify when borrowing.
@@ -529,5 +535,12 @@ void bigint_print(const BigInt *self)
         printf("%i", self->digits[i]);
     printf("\n");
 }
+
+#undef WARN_DIGIT
+#undef WARN_POP
+
+#undef bi_new
+#undef bi_realloc
+#undef bi_free
 
 #endif  // BIGINT_INCLUDE_IMPLEMENTATION

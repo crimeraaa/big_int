@@ -17,7 +17,7 @@ void *allocator_rawrealloc(Allocator *self, void *hint, size oldsz, size newsz);
 
 #define allocator_realloc(T, ptr, oldlen, newlen, a) \
     cast(T*, allocator_rawrealloc(a, ptr, array_sizeof(T, oldlen), array_sizeof(T, newlen)))
-#define allocator_alloc(T, len, a)      allocator_realloc(T, nullptr, 0, len, a)
+#define allocator_new(T, len, a)        allocator_realloc(T, nullptr, 0, len, a)
 #define allocator_free(T, ptr, len, a)  allocator_realloc(T, ptr, len, 0, a)
 
 #ifdef ALLOCATOR_INCLUDE_IMPLEMENTATION
