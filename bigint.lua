@@ -2,14 +2,30 @@ require "class"
 
 --- UTILITY --------------------------------------------------------------- {{{1
 
+-- This is here only because it's easier to grep than the regex `/m_length =/`.
+---@param self BigInt
+---@param length integer
+local function set_length(self, length)
+    self.m_length = length
+end
+
+-- Same idea as `set_length`.
+---@param self BigInt
+---@param negative boolean
+local function set_negative(self, negative)
+    self.m_negative = negative
+end
+
 ---@param self BigInt
 ---@param index integer
 local function check_index(self, index)
     return 1 <= index and index <= self.m_length
 end
 
-local function check_digit(digit)
-    return 0 <= digit and digit < BigInt.BASE
+---@param self BigInt
+---@param digit integer
+local function check_digit(self, digit)
+    return 0 <= digit and digit < self.BASE
 end
 
 ---@param self  BigInt
@@ -57,12 +73,12 @@ end
 ---@param index integer
 ---@param digit integer
 local function write_at(self, index, digit)
-    if 1 <= index and check_digit(digit) then
+    if 1 <= index and check_digit(self, digit) then
         if index > self.m_capacity then
             resize_buffer(self, find_next_power_of(2, index))
         end
         if index > self:len() then
-            self.m_length = index
+            set_length(self, index)
         end
         self.m_digits[index] = digit
         return true
@@ -73,7 +89,7 @@ end
 ---@param self  BigInt
 ---@param digit integer
 local function push_msd(self, digit)
-    if not check_digit(digit) then
+    if not check_digit(self, digit) then
         return false
     end
     local i = self:len() + 1
@@ -88,14 +104,20 @@ local function pop_msd(self)
     if len <= 0 then
         return 0
     end
-    local digit   = self.m_digits[len]
-    self.m_length = len - 1
+    local digit = self.m_digits[len]
+    -- Ensure we always have at least 0.
+    if len == 1 and digit == 0 then
+        return 0
+    end
+    set_length(self, len - 1)
     return digit
 end
 
 ---@param self BigInt
 local function trim_zeroes_msd(self)
-    -- NOTE: Dangerous to modify invariant during a loop!
+    -- NOTE: Normally dangerous to modify invariant during a loop! In this case
+    -- it's fine since we iterate from the highest index going to the lowest.
+    -- So any invalidation of the upper indexes does not affect our traversal.
     for _, v in self:iter_msd() do
         -- No more leading 0's?
         if v ~= 0 then
@@ -110,7 +132,7 @@ end
 local function set_integer(self, value)
     if value < 0 then
         value = math.abs(value)
-        self.m_negative = true
+        set_negative(self, true)
     end
 
     value = math.floor(value)
@@ -126,10 +148,10 @@ end
 local function set_string(self, input)
     for char in input:reverse():gmatch(".") do
         if char == '-' then
-            self.m_negative = not self:is_negative()
+            set_negative(self, not self:is_negative())
         end
         -- Think of this like doing `char` manipulation in C
-        if '0' <= char and char <= '9' then
+        if tonumber(char) and '0' <= char and char <= '9' then
             push_msd(self, char - '0')
         end
     end
@@ -145,43 +167,45 @@ local function set_bigint(self, other)
     for i, v in other:iter_lsd() do
         write_at(self, i, v)
     end
+    set_negative(self, other:is_negative())
 end
 
 --- 1}}} -----------------------------------------------------------------------
 
----@param inst   BigInt
----@param value? string|integer|BigInt
-local function ctor(inst, value)
-    inst.m_digits   = {}
-    inst.m_length   = 0
-    inst.m_capacity = 0
-    inst.m_negative = false
-    if BigInt.is_instance(value) then
-        set_bigint(inst, value) 
-    elseif type(value) == "number" then
-        set_integer(inst, value)
-    elseif type(value) == "string" then
-        set_string(inst, value)
-    end
-end
-
----@class BigInt : Class
+---@class    BigInt:Class
 ---@operator add:BigInt
 ---@operator sub:BigInt
 ---@operator unm:BigInt
 ---@operator call:BigInt
----@field m_digits   integer[]  Stored in a little-endian fashion.
----@field m_length   integer    Number of active values in `digits`.
----@field m_capacity integer    Number of total values in `digits`.
----@field m_negative boolean    For simplicity even 0 is positive.
-BigInt = Class(ctor)
+---@field    m_digits   integer[]  Stored in a little-endian fashion.
+---@field    m_length   integer    Number of active values in `digits`.
+---@field    m_capacity integer    Number of total values in `digits`.
+---@field    m_negative boolean    For simplicity even 0 is positive.
+BigInt = Class(function(self, value)
+    self.m_digits   = {}
+    self.m_length   = 0
+    self.m_capacity = 0
+    self.m_negative = false
+    -- WARNING: Relies on `BigInt` to be global! If the declaration above is
+    -- local, this will fail!
+    if BigInt.is_instance(value) then
+        set_bigint(self, value)
+    elseif type(value) == "number" then
+        set_integer(self, value)
+    elseif type(value) == "string" then
+        set_string(self, value)
+    elseif value == nil then
+        push_msd(self, 0)
+    end
+end)
+
 BigInt.BASE = 10
 
----@param inst BigInt
 ---@param key any
-function BigInt.__index(inst, key)
+---@see   Class.__index
+function BigInt:__index(key)
     if type(key) == "number" then
-        return read_at(inst, key)
+        return read_at(self, key)
     else
         return BigInt[key]
     end
@@ -253,21 +277,19 @@ end
 --- OPERATORS ------------------------------------------------------------- {{{1
 
 function BigInt:abs()
-    self.m_negative = false
+    set_negative(self, false)
     return self
 end
 
 -- Note that this is a toggle!
 function BigInt:unm()
-    self.m_negative = not self:is_negative()
+    set_negative(self, not self:is_negative())
     return self
 end
 
----@param inst BigInt
-function BigInt.__unm(inst)
-    local copy = BigInt()
-    set_bigint(copy, inst)
-    return copy:unm()
+---@param x BigInt
+function BigInt.__unm(x)
+    return BigInt(x):unm()
 end
 
 --- ARITHMETIC ------------------------------------------------------------ {{{2
@@ -284,28 +306,33 @@ local function pick_lesser_length(x, y)
     return (x:len() < y:len()) and x:len() or y:len()
 end
 
+-- 1.)    x + y
+-- 2.)    x + (-y) ==   x - y
+-- 3.) (-x) + y    == -(x - y)
+-- 4.) (-x) + (-y) == -(x + y)
 ---@param x BigInt
 ---@param y BigInt
+---@see BigInt.sub
 function BigInt:add(x, y)
-    -- (-x) + y == y - x
-    -- x + (-y) == x - y
-    -- Create a copy in case 'x' or 'y' is the same as self, so we don't want to
-    -- mutate both at the same time.
+    -- Create copies in case 'x' or 'y' is the same as 'self'.
+    x, y = BigInt(x), BigInt(y)
+
     if x:is_negative() ~= y:is_negative() then
-        local tmp_x = not x:is_negative() and x or y
-        local tmp_y = x:is_negative() and x or y
-        return self:sub(tmp_x, BigInt(tmp_y):abs())
+        if x:is_negative() then
+            return self:sub(x:abs(), y):unm()
+        else
+            return self:sub(x, y:abs())
+        end
     end
 
-    -- (-x) + (-y) == -(x + y)
     -- Since 0 is not negative here, we assume that addition of 2 negatives
     -- will always result in a negative.
-    self.m_negative = x:is_negative() and y:is_negative()
+    set_negative(self, x:is_negative() and y:is_negative())
 
     local len   = pick_greater_length(x, y) + 1
     local carry = 0
     resize_buffer(self, len)
-    self.m_length = len
+    set_length(self, len)
     for i in self:iter_lsd() do
         local sum = read_at(x, i) + read_at(y, i) + carry
         if (sum >= self.BASE) then
@@ -325,7 +352,7 @@ end
 local function borrowed(self, index)
     for i in self:iter_lsd(index + 1) do
         local digit  = read_at(self, i)
-        local borrow = ((digit == 0) and self.BASE or digit) - 1
+        local borrow = (digit == 0) and self.BASE - 1 or digit - 1
         write_at(self, i, borrow)
         -- Assume that somewhere down the line is a nonzero.
         if digit ~= 0 then
@@ -335,7 +362,7 @@ local function borrowed(self, index)
             end
             return true
         end
-    end 
+    end
     return false
 end
 
@@ -346,35 +373,45 @@ local function check_zero(self)
             return self
         end
     end
-    self.m_length   = 1
-    self.m_negative = false
+    set_length(self, 1)
+    set_negative(self, false)
     return self
 end
 
+-- 1.)    x - y
+-- 2.)    x - (-y) ==   x + y
+-- 3.) (-x) - y    == -(x + y)
+-- 4.) (-x) - (-y) ==   y - x
 ---@param x BigInt
 ---@param y BigInt
+---@see BigInt.add
 function BigInt:sub(x, y)
-    -- (-x) - (-y) == (-x) + y == y - x
-    -- Note how we flip the operands' order as well.
-    -- We create copies in case either 'x' or 'y' points to 'self'.
-    if x:is_negative() and y:is_negative() then
-        x, y = BigInt(y):abs(), BigInt(x):abs()
-    end
-    -- Adjust for smaller minuend, ensure clean slate
-    if x:__lt(y) then
+    -- Creates copies in case either or both point to 'self'.
+    x, y = BigInt(x), BigInt(y)
+    if x:is_negative() ~= y:is_negative() then
         if x:is_negative() then
-            -- TODO: How to handle -77 + 11 ...
+            return self:add(x:abs(), y):unm()
+        else
+            return self:add(x, y:abs())
         end
+    end
+    -- Note how we flip the operands' order as well.
+    if x:is_negative() and y:is_negative() then
+        x, y = y:abs(), x:abs()
+    end
+
+    -- Small minuend minus large subtrahend is always negative.
+    local adjusted = x:__lt(y)
+    if adjusted then
         x, y = y, x
-        self.m_negative = true
-    else
-        self.m_negative = false
     end
 
     local len = pick_lesser_length(x, y)
     -- Copy minuend's digits as we will need to modify them when borrowing.
     set_bigint(self, x)
-    self.m_length = len
+    set_length(self, len)
+    set_negative(self, adjusted)
+
     for i in self:iter_lsd() do
         local minuend, subtrahend = read_at(x, i), read_at(y, i)
         if (minuend < subtrahend) then
@@ -382,7 +419,7 @@ function BigInt:sub(x, y)
                 minuend = minuend + self.BASE
             else
                 minuend, subtrahend = subtrahend, minuend
-                self.m_negative = true
+                set_negative(self, true)
             end
         end
         write_at(self, i, minuend - subtrahend)
@@ -473,11 +510,37 @@ end
 --- 1}}} -----------------------------------------------------------------------
 
 --- TEST
-res = BigInt()
-a   = BigInt(11)
-b   = BigInt(22)
-c   = BigInt(44)
-d   = BigInt(88)
+x, y, z = BigInt(4), BigInt(5), BigInt()
+
+print("===BOTH POSITIVE===")
+print("   4 - 5 =", 4 - 5, z:sub(x, y))
+print("   5 - 4 =", 5 - 4, z:sub(y, x))
+
+print("===BOTH NEGATIVE===")
+x:unm(); y:unm()
+print("(-4) - (-5)", (-4) - (-5), z:sub(x, y))
+print("(-5) - (-4)", (-5) - (-4), z:sub(y, x))
+
+print("===ONE POSITIVE, ONE NEGATIVE (1)===")
+y:abs()
+print("(-4) - 5    =", (-4) - 5, z:sub(x, y))
+print("   5 - (-4) =", 5 - (-4), z:sub(y, x))
+
+print("===ONE POSITIVE, ONE NEGATIVE (2)===")
+x:abs()
+y:unm()
+print("   4 - (-5) =", 4 - (-5), z:sub(x, y))
+print("(-5) - 4    =", (-5) - 4, z:sub(y, x))
+
+x, y = BigInt(11), BigInt(77)
+
+print("===11 AND 77===")
+print("   11 - 77 =", 11 - 77,  z:sub(x, y))
+print("(-66) - 11 =", (-66) - 11, z:sub(z, x))
+print("(-77) + 11 =", (-77) + 11, z:add(z, x))
+print("(-66) + 77 =", (-66) + 77, z:add(z, y))
+print("   11 - 77 =", 11 - 77,    z:sub(z, y))
+print("(-66) - 77 =", (-66) - 77, z:sub(z, y))
 
 function print_keys(t)
     for k in pairs(t) do
