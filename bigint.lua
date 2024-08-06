@@ -1,4 +1,4 @@
-require "class"
+local Class = require "class"
 
 --- UTILITY --------------------------------------------------------------- {{{1
 
@@ -105,10 +105,6 @@ local function pop_msd(self)
         return 0
     end
     local digit = self.m_digits[len]
-    -- Ensure we always have at least 0.
-    if len == 1 and digit == 0 then
-        return 0
-    end
     set_length(self, len - 1)
     return digit
 end
@@ -172,16 +168,11 @@ end
 
 --- 1}}} -----------------------------------------------------------------------
 
----@class    BigInt:Class
----@operator add:BigInt
----@operator sub:BigInt
----@operator unm:BigInt
----@operator call:BigInt
----@field    m_digits   integer[]  Stored in a little-endian fashion.
----@field    m_length   integer    Number of active values in `digits`.
----@field    m_capacity integer    Number of total values in `digits`.
----@field    m_negative boolean    For simplicity even 0 is positive.
-BigInt = Class(function(self, value)
+local BigInt
+
+---@param self BigInt
+---@param value? BigInt|integer|string
+local function ctor(self, value)
     self.m_digits   = {}
     self.m_length   = 0
     self.m_capacity = 0
@@ -197,8 +188,19 @@ BigInt = Class(function(self, value)
     elseif value == nil then
         push_msd(self, 0)
     end
-end)
+end
 
+---@class BigInt: Class
+---@field m_digits   integer[]  Stored in a little-endian fashion.
+---@field m_length   integer    Number of active values in `digits`.
+---@field m_capacity integer    Number of total values in `digits`.
+---@field m_negative boolean    For simplicity even 0 is positive.
+---
+---@operator add: BigInt
+---@operator sub: BigInt
+---@operator unm: BigInt
+---@overload fun(value?: BigInt|integer|string): BigInt
+BigInt = Class(ctor)
 BigInt.BASE = 10
 
 ---@param key any
@@ -329,6 +331,7 @@ function BigInt:add(x, y)
     -- will always result in a negative.
     set_negative(self, x:is_negative() and y:is_negative())
 
+    -- Include 1 more for the very last carry if it extends our length.
     local len   = pick_greater_length(x, y) + 1
     local carry = 0
     resize_buffer(self, len)
@@ -547,3 +550,5 @@ function print_keys(t)
         print(k, type(k))
     end
 end
+
+return BigInt

@@ -1,11 +1,12 @@
 ---@class Class
----@operator call: Class
 ---@field __index     function|table
----@field is_instance function
+---@field is_instance fun(obj: any): boolean
+---
+---@operator call: Class
 
 ---See: https://github.com/penguin0616/dst_gamescripts/blob/master/class.lua
 ---@param ctor?  fun(obj: table, ...)
-function Class(ctor)
+local function Class(ctor)
     ---@type Class
     ---@diagnostic disable-next-line: missing-fields
     local c = {}
@@ -60,3 +61,5 @@ end
 -- function Array:length()
 --     return self.m_length
 -- end
+
+return Class
