@@ -157,13 +157,14 @@ end
 ---@param other BigInt
 local function set_bigint(self, other)
     if self == other then
-        return
+        return self
     end
     resize_buffer(self, other:len())
     for i, v in other:iter_lsd() do
         write_at(self, i, v)
     end
     set_negative(self, other:is_negative())
+    return self
 end
 
 --- 1}}} -----------------------------------------------------------------------
@@ -177,8 +178,6 @@ local function ctor(self, value)
     self.m_length   = 0
     self.m_capacity = 0
     self.m_negative = false
-    -- WARNING: Relies on `BigInt` to be global! If the declaration above is
-    -- local, this will fail!
     if BigInt.is_instance(value) then
         set_bigint(self, value)
     elseif type(value) == "number" then
@@ -202,6 +201,10 @@ end
 ---@overload fun(value?: BigInt|integer|string): BigInt
 BigInt = Class(ctor)
 BigInt.BASE = 10
+
+function BigInt:clone()
+    return set_bigint(BigInt(), self)
+end
 
 ---@param key any
 ---@see   Class.__index
@@ -291,7 +294,7 @@ end
 
 ---@param x BigInt
 function BigInt.__unm(x)
-    return BigInt(x):unm()
+    return x:clone():unm()
 end
 
 --- ARITHMETIC ------------------------------------------------------------ {{{2
@@ -299,13 +302,15 @@ end
 ---@param x BigInt
 ---@param y BigInt
 local function pick_greater_length(x, y)
-    return (x:len() > y:len()) and x:len() or y:len()
+    local xlen, ylen = x:len(), y:len()
+    return (xlen > ylen) and xlen or ylen
 end
 
 ---@param x BigInt
 ---@param y BigInt
 local function pick_lesser_length(x, y)
-    return (x:len() < y:len()) and x:len() or y:len()
+    local xlen, ylen = x:len(), y:len()
+    return (xlen < ylen) and xlen or ylen
 end
 
 -- 1.)    x + y
@@ -317,10 +322,11 @@ end
 ---@see BigInt.sub
 function BigInt:add(x, y)
     -- Create copies in case 'x' or 'y' is the same as 'self'.
-    x, y = BigInt(x), BigInt(y)
+    x, y = x:clone(), y:clone()
 
-    if x:is_negative() ~= y:is_negative() then
-        if x:is_negative() then
+    local xneg, yneg = x:is_negative(), y:is_negative()
+    if xneg ~= yneg then
+        if xneg then
             return self:sub(x:abs(), y):unm()
         else
             return self:sub(x, y:abs())
@@ -329,7 +335,7 @@ function BigInt:add(x, y)
 
     -- Since 0 is not negative here, we assume that addition of 2 negatives
     -- will always result in a negative.
-    set_negative(self, x:is_negative() and y:is_negative())
+    set_negative(self, xneg and yneg)
 
     -- Include 1 more for the very last carry if it extends our length.
     local len   = pick_greater_length(x, y) + 1
@@ -390,16 +396,19 @@ end
 ---@see BigInt.add
 function BigInt:sub(x, y)
     -- Creates copies in case either or both point to 'self'.
-    x, y = BigInt(x), BigInt(y)
-    if x:is_negative() ~= y:is_negative() then
-        if x:is_negative() then
-            return self:add(x:abs(), y):unm()
+    x, y = x:clone(), y:clone()
+    local xneg, yneg = x:is_negative(), y:is_negative()
+    if xneg ~= yneg then
+        if xneg then
+            self:add(x:abs(), y)
+            return self:unm()
         else
-            return self:add(x, y:abs())
+            self:add(x, y:abs())
+            return self
         end
     end
     -- Note how we flip the operands' order as well.
-    if x:is_negative() and y:is_negative() then
+    if xneg and yneg then
         x, y = y:abs(), x:abs()
     end
 
@@ -455,18 +464,20 @@ end
 ---@param x BigInt
 ---@param y BigInt
 local function quick_lt(x, y)
-    if x:is_negative() ~= y:is_negative() then
+    local xneg, yneg = x:is_negative(), y:is_negative()
+    if xneg ~= yneg then
         -- Since both are different, if x is negative then y is positive.
         -- Negatives are always less than positives.
-        return x:is_negative()
+        return xneg
     end
     -- If same signs and same lengths both paths will return false either way.
     -- E.g. -11 > -222, although -11 has only 2 digits it is higher up the
     -- number line than -222.
-    if x:is_negative() then
-        return x:len() > y:len()
+    local xlen, ylen = x:len(), y:len()
+    if xneg then
+        return xlen > ylen
     else
-        return x:len() < y:len()
+        return xlen < ylen
     end
 end
 
@@ -512,43 +523,43 @@ end
 
 --- 1}}} -----------------------------------------------------------------------
 
---- TEST
-x, y, z = BigInt(4), BigInt(5), BigInt()
+-- --- TEST
+-- x, y, z = BigInt(4), BigInt(5), BigInt()
 
-print("===BOTH POSITIVE===")
-print("   4 - 5 =", 4 - 5, z:sub(x, y))
-print("   5 - 4 =", 5 - 4, z:sub(y, x))
+-- print("===BOTH POSITIVE===")
+-- print("   4 - 5 =", 4 - 5, z:sub(x, y))
+-- print("   5 - 4 =", 5 - 4, z:sub(y, x))
 
-print("===BOTH NEGATIVE===")
-x:unm(); y:unm()
-print("(-4) - (-5)", (-4) - (-5), z:sub(x, y))
-print("(-5) - (-4)", (-5) - (-4), z:sub(y, x))
+-- print("===BOTH NEGATIVE===")
+-- x:unm(); y:unm()
+-- print("(-4) - (-5)", (-4) - (-5), z:sub(x, y))
+-- print("(-5) - (-4)", (-5) - (-4), z:sub(y, x))
 
-print("===ONE POSITIVE, ONE NEGATIVE (1)===")
-y:abs()
-print("(-4) - 5    =", (-4) - 5, z:sub(x, y))
-print("   5 - (-4) =", 5 - (-4), z:sub(y, x))
+-- print("===ONE POSITIVE, ONE NEGATIVE (1)===")
+-- y:abs()
+-- print("(-4) - 5    =", (-4) - 5, z:sub(x, y))
+-- print("   5 - (-4) =", 5 - (-4), z:sub(y, x))
 
-print("===ONE POSITIVE, ONE NEGATIVE (2)===")
-x:abs()
-y:unm()
-print("   4 - (-5) =", 4 - (-5), z:sub(x, y))
-print("(-5) - 4    =", (-5) - 4, z:sub(y, x))
+-- print("===ONE POSITIVE, ONE NEGATIVE (2)===")
+-- x:abs()
+-- y:unm()
+-- print("   4 - (-5) =", 4 - (-5), z:sub(x, y))
+-- print("(-5) - 4    =", (-5) - 4, z:sub(y, x))
 
-x, y = BigInt(11), BigInt(77)
+-- x, y = BigInt(11), BigInt(77)
 
-print("===11 AND 77===")
-print("   11 - 77 =", 11 - 77,  z:sub(x, y))
-print("(-66) - 11 =", (-66) - 11, z:sub(z, x))
-print("(-77) + 11 =", (-77) + 11, z:add(z, x))
-print("(-66) + 77 =", (-66) + 77, z:add(z, y))
-print("   11 - 77 =", 11 - 77,    z:sub(z, y))
-print("(-66) - 77 =", (-66) - 77, z:sub(z, y))
+-- print("===11 AND 77===")
+-- print("   11 - 77 =", 11 - 77,  z:sub(x, y))
+-- print("(-66) - 11 =", (-66) - 11, z:sub(z, x))
+-- print("(-77) + 11 =", (-77) + 11, z:add(z, x))
+-- print("(-66) + 77 =", (-66) + 77, z:add(z, y))
+-- print("   11 - 77 =", 11 - 77,    z:sub(z, y))
+-- print("(-66) - 77 =", (-66) - 77, z:sub(z, y))
 
-function print_keys(t)
-    for k in pairs(t) do
-        print(k, type(k))
-    end
-end
+-- function print_keys(t)
+--     for k in pairs(t) do
+--         print(k, type(k))
+--     end
+-- end
 
 return BigInt
