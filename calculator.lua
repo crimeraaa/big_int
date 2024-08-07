@@ -1,68 +1,66 @@
-local Enum   = require "enum"
-local BigInt = require "bigint"
+---@param fmt string
+---@param ... any
+local function printf(fmt, ...)
+    return io.stdout:write(fmt:format(...))
+end
 
----@enum OpCode
-local OpCode = Enum {
-    "Add",  "Sub",  "Mul",  "Div",
-    "Eq",   "Neq",  "Lt",   "Leq",  "Gt",   "Geq",
-    "Number", "Error", "Eof",
-}
-
----@enum Token.Family
-local Family = Enum {
-    "Grouping",
-    "Arithmetic",
-    "Relational",
-    "Literal",
-    "Error",
-    "Eof",
-}
+---@param fmt string
+---@param ... any
+local function printfln(fmt, ...)
+    return printf(fmt .. '\n', ...)
+end
 
 ---@enum Precedence
-local Precedence = Enum {
-    "None",
-    "Equality",     -- == ~=
-    "Terminal",     -- + -
-    "Comparison",   -- < <= >= >
-    "Factor",       -- / *
+local Precedence = {
+    None       = 0,
+    Equality   = 1,     -- == ~=
+    Terminal   = 2,     -- + -
+    Comparison = 3,   -- < <= >= >
+    Factor     = 4,       -- / *
 }
 
 ---@class Token
----@field family Enum.Value|Token.Family
----@field opcode Enum.Value|OpCode
----@field prec   Enum.Value|Precedence
----@field data?  string
+---@field type  Token.Type
+---@field data  string
 
----@param family? Enum.Value|Token.Family
----@param opcode? Enum.Value|OpCode
----@param prec?   Enum.Value|Precedence
----@return Token token
-local function new_token(family, opcode, prec)
-    return {family = family or Family.Eof,
-            opcode = opcode or OpCode.Eof,
-            prec   = prec   or Precedence.None}
-end
-
----@type {[string]: Token}
 local Token = { 
-    ['(']  = new_token(Family.Grouping),
-    [')']  = new_token(Family.Grouping),
+    ---@enum Token.Type
+    Type = {
+        LeftParen    = 1,
+        RightParen   = 2,
+
+        Plus         = 3,
+        Minus        = 4,
+        Star         = 5,
+        Slash        = 6,
+        
+        EqualEqual   = 7,
+        TildeEqual   = 8,
+        LessThan     = 9,
+        LessEqual    = 10,
+        GreaterThan  = 11,
+        GreaterEqual = 12,
+
+        Number       = 13,
+        Error        = 14,
+        Eof          = 15,
+    },
+}
+
+Token.CharToType = {
+    ['(']  = Token.Type.LeftParen,
+    [')']  = Token.Type.RightParen,
+    ['+']  = Token.Type.Plus,
+    ['-']  = Token.Type.Minus,
+    ['*']  = Token.Type.Star,
+    ['/']  = Token.Type.Slash,
     
-    ['+']  = new_token(Family.Arithmetic, OpCode.Add, Precedence.Terminal),
-    ['-']  = new_token(Family.Arithmetic, OpCode.Sub, Precedence.Terminal),
-    ['*']  = new_token(Family.Arithmetic, OpCode.Mul, Precedence.Factor),
-    ['/']  = new_token(Family.Arithmetic, OpCode.Div, Precedence.Factor), 
-
-    ["=="] = new_token(Family.Relational, OpCode.Eq,  Precedence.Equality),
-    ["~="] = new_token(Family.Relational, OpCode.Neq, Precedence.Equality),
-    ['<']  = new_token(Family.Relational, OpCode.Lt,  Precedence.Comparison),
-    ["<="] = new_token(Family.Relational, OpCode.Leq, Precedence.Comparison),
-    ['>']  = new_token(Family.Relational, OpCode.Gt,  Precedence.Comparison),
-    [">="] = new_token(Family.Relational, OpCode.Geq, Precedence.Comparison),
-
-    Number = new_token(Family.Literal,    OpCode.Number),
-    Error  = new_token(Family.Error,      OpCode.Error),
-    Eof    = new_token(),
+    ["=="] = Token.Type.EqualEqual,
+    ["~="] = Token.Type.TildeEqual,
+    ['<']  = Token.Type.LessThan,
+    ["<="] = Token.Type.LessEqual,
+    ['>']  = Token.Type.GreaterThan,
+    [">="] = Token.Type.GreaterEqual,
 }
 
 local lexer = {
@@ -70,87 +68,98 @@ local lexer = {
     data    = "",
     input   = "",
     rest    = "",
-    ---@type Token
-    token   = new_token(),
 }
 
----@param fmt string
----@param ... any
-local function printf(fmt, ...)
-    return io.stdout:write(fmt:format(...))
-
-end
----@param fmt string
----@param ... any
-local function printfln(fmt, ...)
-    return printf(fmt .. '\n', ...)
+---@param type? Token.Type
+function lexer:make_token(type)
+    ---@type Token
+    local token = {
+        type = type or Token.Type.Error,
+        data = self.data,
+    }
+    return token
 end
 
-local function match_rest(pattern)
+function lexer:match_start_of_rest(pattern)
     ---@type integer|nil, integer|nil, string|nil
-    local start, stop, rest = lexer.rest:find('^(' .. pattern .. ')')
-    return start, stop, rest
+    return self.rest:find('^(' .. pattern .. ')')
 end
 
-local function token_consumed(pattern)
-    local _, stop, data = match_rest(pattern)
-    if stop and data then
-        lexer.index = lexer.index + stop
-        lexer.data  = data
-        lexer.rest  = lexer.input:sub(lexer.index)
+function lexer:found_pattern(pattern)
+    ---`lexer.rest` is equivalent to the slice `lexer.input[index:]`, and we
+    ---only look for matches at the beginning of `lexer.rest`, we can assume
+    ---`stop` is the same as the substring length.
+    local _, len, data = self:match_start_of_rest(pattern)
+    if len and data then
+        local oldindex = self.index
+        local newindex = oldindex + len
+        self.index = newindex
+        self.data  = data
+        self.rest  = self.input:sub(newindex)
+        -- printfln("input[%i:%i] '%s', #input %i", oldindex, newindex - 1, data, #self.input)
         return true
     end
     return false
 end
 
-local function skip_whitespace()
-    return token_consumed("%s+")
+function lexer:skip_whitespace()
+    return self:found_pattern("%s+")
 end
 
----@param token Token
-local function set_token(token)
-    lexer.token.data = lexer.data
-    if token then
-        lexer.token.family = token.family
-        lexer.token.opcode = token.opcode
-        return true
-    else
-        -- Copy just the pointer so we can compare directly to it.
-        lexer.token = Token.Error
-        return false
-    end
-end
-
----@param token Token
-local function token_tostring(token)
-    local family = Family[token.family]
-    local opcode = OpCode[token.opcode]
-    return string.format("%12s %-8s %8s", family, opcode, token.data or "(empty)")
-end
-
-local function token_available()
-    skip_whitespace()
-    if token_consumed("[%d,_.]+") then
-        return set_token(Token.Number)
-    elseif token_consumed("[-+*/]") then
-        return set_token(Token[lexer.data])
-    elseif token_consumed("[=~<>]=?") then
+function lexer:scan_token()
+    self:skip_whitespace()
+    if self:found_pattern("[%d,_.]+") then
+        return self:make_token(Token.Type.Number)
+    elseif self:found_pattern("[-+*/]") then
+        return self:make_token(Token.CharToType[self.data])
+    elseif self:found_pattern("[=~<>]=?") then
         -- Lone '=' won't ever receive a valid token.
-        return set_token(Token[lexer.data])
+        return self:make_token(Token.CharToType[self.data])
+    else
+        -- Still have non-whitespace stuff left in the rest string?
+        local more = self:found_pattern("[%S]+")
+        if not more then
+            self.data = "(eof)"
+        end
+        return self:make_token(more and Token.Type.Error or Token.Type.Eof)
     end
-    lexer.token = token_consumed("[^%s]+") and Token.Error or Token.Eof
+end
+
+local parser = {
+    consumed  = lexer:make_token(),
+    lookahead = lexer:make_token(),
+}
+
+---@param ... Token.Type
+function parser:match_lookahead(...)
+    for _, ttype in ipairs{...} do
+        if self.lookahead.type == ttype then
+            return true
+        end
+    end
     return false
+end
+
+function parser:update_lookahead()
+    self.consumed  = self.lookahead
+    self.lookahead = lexer:scan_token()
+    if self:match_lookahead(Token.Type.Error) then
+        printfln("[ERROR] Unexpected symbol '%s'", lexer.data)
+    end
 end
 
 ---@param token Token
 ---@param prec  Precedence
-local function parse_precedence(token, prec)
+function parser:precedence(token, prec)
 end
 
----@param token Token
-local function parse_expression(token)
-    parse_precedence(token, token.prec)
-    print(token_tostring(token))
+function parser:print()
+    local x, y = self.consumed, self.lookahead
+    printfln("consumed '%s'\tlookahead '%s'", x.data, y.data)
+end
+
+function parser:expression()
+    parser:precedence(parser.consumed, Precedence.None + 1)
 end
 
 
@@ -160,13 +169,12 @@ local function compile(input)
     lexer.data  = ""
     lexer.input, lexer.rest = input, input
     
-    while token_available() do
-        parse_expression(lexer.token)
-    end
-
-    if lexer.token == Token.Error then
-        printfln("[ERROR]: Syntax error at '%s'", lexer.data)
-        return
+    -- Ensure lookahead token is something we can start with
+    parser:update_lookahead()
+    while not parser:match_lookahead(Token.Type.Error, Token.Type.Eof) do
+        parser:update_lookahead()
+        parser:expression()
+        parser:print()
     end
 end
 

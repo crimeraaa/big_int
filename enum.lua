@@ -12,9 +12,19 @@ local function rawtostring(t)
     return ret
 end
 
----@param self Enum     Created inside `__call()` inside of `Class()`.
+---@class Enum: Class
+---@field private m_enums  {[string|integer]: Enum.Value}
+---@field private m_names  {[Enum.Value]: string}
+---@field private m_string string
+---@field [string|integer] Enum.Value Map enum names to enum values.
+---@field [Enum.Value] string Map enum values back to enum names.
+---
+---@overload fun(keys: string[]): Enum
+Enum = Class()
+
+---`self` is created by the `__call()` method assinged in `Class()`.
 ---@param keys string[] Array of string names for your enums.
-local function enum_ctor(self, keys)
+function Enum:init(keys)
     self.m_enums = {}
     self.m_names = {}
     self.m_string = rawtostring(self):gsub("table", "Enum")
@@ -26,19 +36,9 @@ local function enum_ctor(self, keys)
     end
 end
 
----@class Enum: Class
----@field m_enums  {[string|integer]: Enum.Value}
----@field m_names  {[Enum.Value]: string}
----@field m_string string
----@field [string] Enum.Value Map enum names to enum values.
----@field [Enum.Value] string Map enum values back to enum names.
----
----@overload fun(keys: string[]): Enum
-Enum = Class(enum_ctor)
-
 function Enum:__index(key)
     local val ---@type Enum.Value|string|nil
-    if type(key) == "string" then
+    if type(key) == "string" or type(key) == "number" then
         val = self.m_enums[key]
     elseif Enum.Value.is_instance(key) then
         val = self.m_names[key]
@@ -53,23 +53,26 @@ function Enum:__tostring()
     return self.m_string
 end
 
----@param self   Enum.Value
+---@class Enum.Value: Class
+---@field private m_value  integer
+---@field private m_parent Enum     Pointer to parent enum type to ensure correctness.
+---@field private m_string string
+---
+---@overload fun(key: string, value: integer, parent: Enum): Enum.Value
+Enum.Value = Class()
+
 ---@param key    string
 ---@param value  integer
 ---@param parent Enum
-local function value_ctor(self, key, value, parent)
+function Enum.Value:init(key, value, parent)
     self.m_value  = value
     self.m_parent = parent
     self.m_string = string.format("Enum[%i]: %s", value, key)
 end
 
----@class Enum.Value : Class
----@field m_value  integer
----@field m_parent Enum     Pointer to parent enum type to ensure correctness.
----@field m_string string
----
----@overload fun(key: string, value: integer, parent: Enum): Enum.Value
-Enum.Value = Class(value_ctor)
+function Enum.Value:value()
+    return self.m_value
+end
 
 local function check_types(x, y)
     local fn = Enum.Value.is_instance
@@ -80,9 +83,10 @@ local function throw_error(action, x, y)
     error(string.format("Cannot %s '%s' and '%s'", action, tostring(x), tostring(y)))
 end
 
+---@private
 ---@param x Enum.Value|integer
 ---@param y Enum.Value|integer
-local function check_arithmetic(x, y)
+function Enum.Value.check_arithmetic(x, y)
     local x_is, y_is = check_types(x, y)
     if x_is == y_is then
         throw_error("add/subtract", x, y)
@@ -90,18 +94,19 @@ local function check_arithmetic(x, y)
     local x_num, y_num = tonumber(x), tonumber(y)
     local sum, enum
     if x_num then
-        sum  = x_num + y.m_value
-        enum = y.m_parent.m_enums[sum]
+        sum  = x_num + y:value()
+        enum = y.m_parent[sum]
     else
-        sum  = x.m_value + y_num
-        enum = x.m_parent.m_enums[sum]
+        sum  = x:value() + y_num
+        enum = x.m_parent[sum]
     end
     return sum, enum
 end
 
+---@private
 ---@param x Enum.Value
 ---@param y Enum.Value
-local function check_comparison(x, y)
+function Enum.Value.check_comparison(x, y)
     local x_is, y_is = check_types(x, y)
     if x_is and y_is and x.m_parent == y.m_parent then
         return true
@@ -109,10 +114,9 @@ local function check_comparison(x, y)
     throw_error("compare", x, y)
 end
 
----@param x Enum.Value|integer
 ---@param y Enum.Value|integer
-function Enum.Value.__add(x, y)
-    local sum, enum = check_arithmetic(x, y)
+function Enum.Value:__add(y)
+    local sum, enum = self:check_arithmetic(y)
     if not enum then
         error(string.format("Invalid result Enum '%i'", sum))
     end
@@ -133,25 +137,25 @@ end
 ---@param x Enum.Value
 ---@param y Enum.Value
 local function quick_eq(x, y)
-    return x.m_value == y.m_value
+    return x:value() == y:value()
 end
 
 ---@param x Enum.Value
 ---@param y Enum.Value
 local function quick_lt(x, y)
-    return x.m_value < y.m_value
+    return x:value() < y:value()
 end
 
-function Enum.Value.__eq(x, y)
-    return check_comparison(x, y) and quick_eq(x, y)
+function Enum.Value:__eq(y)
+    return self:check_comparison(y) and quick_eq(self, y)
 end
 
-function Enum.Value.__lt(x, y)
-    return check_comparison(x, y) and (not quick_eq(x, y) and quick_lt(x, y))
+function Enum.Value:__lt(y)
+    return self:check_comparison(y) and (not quick_eq(self, y) and quick_lt(self, y))
 end
 
-function Enum.Value.__le(x, y)
-    return check_comparison(x, y) and (quick_eq(x, y) or quick_lt(x, y))
+function Enum.Value:__le(y)
+    return self:check_comparison(y) and (quick_eq(self, y) or quick_lt(self, y))
 end
 
 function Enum.Value:__tostring()

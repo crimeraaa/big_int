@@ -1,11 +1,13 @@
 ---@class Class
+---@field init        fun(inst: Class, ...)      Constructor function.
+---@field is_instance fun(inst: Class): boolean
+---
 ---@field __index     function|table
----@field is_instance fun(obj: Class): boolean
 ---
 ---@operator call: Class
 
 ---See: https://github.com/penguin0616/dst_gamescripts/blob/master/class.lua
----@param ctor?  fun(obj: Class, ...)
+---@param ctor?  fun(inst: Class, ...)
 local function Class(ctor)
     ---@type Class
     ---@diagnostic disable-next-line: missing-fields
@@ -22,12 +24,14 @@ local function Class(ctor)
     ---@param ... any
     mt.__call = function(t, ...)
         ---@type Class
-        local obj = setmetatable({}, t)
-        if ctor then
-            ctor(obj, ...)
+        local inst = setmetatable({}, t)
+        if t.init then
+            t.init(inst, ...)
         end
-        return obj
+        return inst
     end
+    
+    c.init = ctor
     
     c.is_instance = function(obj)
         return type(obj) == "table" and getmetatable(obj) == c
