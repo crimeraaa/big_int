@@ -2,22 +2,22 @@ local Class = require "class"
 
 local BigInt
 
----@class BigInt: Class
----@field m_digits   integer[]  Stored in a little-endian fashion.
----@field m_length   integer    Number of active values in `digits`.
----@field m_capacity integer    Number of total values in `digits`.
----@field m_negative boolean    For simplicity even 0 is positive.
+---@class BigInt : Class
+---@field m_digits integer[] Stored in a little-endian fashion.
+---@field m_length integer Number of active values in `digits`.
+---@field m_capacity integer Number of total values in `digits`.
+---@field m_negative boolean For simplicity even 0 is positive.
 ---
 ---@operator add: BigInt
 ---@operator sub: BigInt
 ---@operator unm: BigInt
 ---
 ---@overload fun(value?: BigInt|integer|string): BigInt
----@param inst   BigInt
+---@param inst BigInt
 ---@param value? integer|string|BigInt
 BigInt = Class(function(inst, value)
-    inst.m_digits   = {}
-    inst.m_length   = 0
+    inst.m_digits = {}
+    inst.m_length = 0
     inst.m_capacity = 0
     inst.m_negative = false
     if BigInt.is_instance(value) then
@@ -90,9 +90,8 @@ end
 ---Do a deep copy of `other` into `self`.
 ---@param other BigInt
 function BigInt:set_bigint(other)
-    if self == other then
-        return self
-    end
+    if self == other then return self end
+
     self:resize(other:length())
     for i, v in other:iter_lsd() do
         self:write_at(i, v)
@@ -144,17 +143,17 @@ end
 ---@param index integer
 ---@param digit integer
 function BigInt:write_at(index, digit)
-    if 1 <= index and check_digit(self, digit) then
-        if index > self:capacity() then
-            self:resize(find_next_power_of(2, index))
-        end
-        if index > self:length() then
-            self:set_length(index)
-        end
-        self.m_digits[index] = digit
-        return true
+    if not (1 <= index and check_digit(self, digit)) then
+        return false
     end
-    return false
+    if index > self:capacity() then
+        self:resize(find_next_power_of(2, index))
+    end
+    if index > self:length() then
+        self:set_length(index)
+    end
+    self.m_digits[index] = digit
+    return true
 end
 
 ---@param start?    integer
@@ -168,9 +167,7 @@ end
 -- Equivalent to realloc'ing the array then memset'ing it to 0 in C.
 function BigInt:resize(newcap)
     local oldcap = self:capacity()
-    if newcap <= oldcap then
-        return
-    end
+    if newcap <= oldcap then return end
     self:clear(self:length() + 1, newcap)
     self:set_capacity(newcap)
 end
@@ -198,7 +195,7 @@ function BigInt:__tostring()
         n = n + 1
         t[n] = v
     end
-    return "BigInt: " .. table.concat(t)
+    return "BigInt: "..table.concat(t)
 end
 
 function BigInt:length()
@@ -381,9 +378,7 @@ end
 ---@param self BigInt
 local function check_zero(self)
     for _, v in self:iter_msd() do
-        if v ~= 0 then
-            return self
-        end
+        if v ~= 0 then return self end
     end
     self:set_length(1)
     self:set_negative(false)
@@ -469,11 +464,10 @@ end
 ---@param y BigInt
 local function quick_lt(x, y)
     local xneg, yneg = x:is_negative(), y:is_negative()
-    if xneg ~= yneg then
-        -- Since both are different, if x is negative then y is positive.
-        -- Negatives are always less than positives.
-        return xneg
-    end
+    -- Since both are different, if x is negative then y is positive.
+    -- Negatives are always less than positives.
+    if xneg ~= yneg then return xneg end
+
     -- If same signs and same lengths both paths will return false either way.
     -- E.g. -11 > -222, although -11 has only 2 digits it is higher up the
     -- number line than -222.
@@ -488,9 +482,7 @@ end
 ---@param x BigInt
 ---@param y BigInt
 function BigInt.__eq(x, y)
-    if not quick_eq(x, y) then
-        return false
-    end
+    if not quick_eq(x, y) then return false end
     for i, v in x:iter_msd() do
         if v ~= y:read_at(i) then
             return false
@@ -503,9 +495,7 @@ end
 ---@param y BigInt
 function BigInt.__lt(x, y)
     -- Different length and/or different sign?
-    if not quick_eq(x, y) then
-        return quick_lt(x, y)
-    end
+    if not quick_eq(x, y) then return quick_lt(x, y) end
     -- Always check most significant digits first. -E.g. in 102 < 201,
     -- if we did lsd first we would compare 3 > 1 first.
     for i, v in x:iter_msd() do
@@ -525,44 +515,5 @@ end
 --- 2}}} -----------------------------------------------------------------------
 
 --- 1}}} -----------------------------------------------------------------------
-
---- TEST
--- x, y, z = BigInt(4), BigInt(5), BigInt()
-
--- print("===BOTH POSITIVE===")
--- print("   4 - 5 =", 4 - 5, z:sub(x, y))
--- print("   5 - 4 =", 5 - 4, z:sub(y, x))
-
--- print("===BOTH NEGATIVE===")
--- x:unm(); y:unm()
--- print("(-4) - (-5)", (-4) - (-5), z:sub(x, y))
--- print("(-5) - (-4)", (-5) - (-4), z:sub(y, x))
-
--- print("===ONE POSITIVE, ONE NEGATIVE (1)===")
--- y:abs()
--- print("(-4) - 5    =", (-4) - 5, z:sub(x, y))
--- print("   5 - (-4) =", 5 - (-4), z:sub(y, x))
-
--- print("===ONE POSITIVE, ONE NEGATIVE (2)===")
--- x:abs()
--- y:unm()
--- print("   4 - (-5) =", 4 - (-5), z:sub(x, y))
--- print("(-5) - 4    =", (-5) - 4, z:sub(y, x))
-
--- x, y = BigInt(11), BigInt(77)
-
--- print("===11 AND 77===")
--- print("   11 - 77 =", 11 - 77,  z:sub(x, y))
--- print("(-66) - 11 =", (-66) - 11, z:sub(z, x))
--- print("(-77) + 11 =", (-77) + 11, z:add(z, x))
--- print("(-66) + 77 =", (-66) + 77, z:add(z, y))
--- print("   11 - 77 =", 11 - 77,    z:sub(z, y))
--- print("(-66) - 77 =", (-66) - 77, z:sub(z, y))
-
-function print_keys(t)
-    for k in pairs(t) do
-        print(k, type(k))
-    end
-end
 
 return BigInt

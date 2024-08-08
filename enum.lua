@@ -12,15 +12,15 @@ local function rawtostring(t)
     return ret
 end
 
----@class Enum: Class
----@field m_enums  {[string|integer]: Enum.Value} Map names, values to unique enums.
----@field m_names  {[Enum.Value]: string} May unique enums back to names.
+---@class Enum : Class
+---@field m_enums {[string|integer]: Enum.Value} Map names, values to unique enums.
+---@field m_names {[Enum.Value]: string} May unique enums back to names.
 ---@field m_string string
 ---@field [string|integer] Enum.Value
 ---@field [Enum.Value] string
 ---
 ---@overload fun(keys: string[]): Enum
----@param inst Enum     Created and passed by `__call()` in `Class()`.
+---@param inst Enum Created and passed by `__call()` in `Class()`.
 ---@param keys string[] Array of string names for your enums.
 Enum = Class(function(inst, keys)
     inst.m_enums = {}
@@ -51,18 +51,18 @@ function Enum:__tostring()
     return self.m_string
 end
 
----@class Enum.Value: Class
----@field m_value  integer
----@field m_parent Enum     Pointer to parent enum type to ensure correctness.
+---@class Enum.Value : Class
+---@field m_value integer
+---@field m_parent Enum Pointer to parent enum type to ensure correctness.
 ---@field m_string string
 ---
 ---@overload fun(key: string, value: integer, parent: Enum): Enum.Value
----@param inst   Enum.Value
----@param key    string
----@param value  integer
+---@param inst Enum.Value
+---@param key string
+---@param value integer
 ---@param parent Enum
 Enum.Value = Class(function(inst, key, value, parent)
-    inst.m_value  = value
+    inst.m_value = value
     inst.m_parent = parent
     inst.m_string = string.format("Enum[%i]: %s", value, key)
 end)
@@ -84,8 +84,7 @@ end
 ---@param x Enum.Value|integer
 ---@param y Enum.Value|integer
 function Enum.Value.check_arithmetic(x, y)
-    local x_is, y_is = check_types(x, y)
-    if x_is == y_is then
+    if Enum.Value.is_instance(x) == Enum.Value.is_instance(y) then
         throw_error("add/subtract", x, y)
     end
     local x_num, y_num = tonumber(x), tonumber(y)
@@ -104,8 +103,8 @@ end
 ---@param x Enum.Value
 ---@param y Enum.Value
 function Enum.Value.check_comparison(x, y)
-    local x_is, y_is = check_types(x, y)
-    if x_is and y_is and x.m_parent == y.m_parent then
+    local is_inst = Enum.Value.is_instance
+    if is_inst(x) and is_inst(y) and x.m_parent == y.m_parent then
         return true
     end
     throw_error("compare", x, y)
@@ -144,43 +143,28 @@ local function quick_lt(x, y)
 end
 
 function Enum.Value:__eq(y)
-    return self:check_comparison(y) and quick_eq(self, y)
+    if not self:check_comparison(y) then
+        return false
+    end
+    return quick_eq(self, y)
 end
 
 function Enum.Value:__lt(y)
-    return self:check_comparison(y) and (not quick_eq(self, y) and quick_lt(self, y))
+    if not self:check_comparison(y) then
+        return false
+    end
+    return (not quick_eq(self, y) and quick_lt(self, y))
 end
 
 function Enum.Value:__le(y)
-    return self:check_comparison(y) and (quick_eq(self, y) or quick_lt(self, y))
+    if not self:check_comparison(y) then
+        return false
+    end
+    return (quick_eq(self, y) or quick_lt(self, y))
 end
 
 function Enum.Value:__tostring()
     return self.m_string
 end
-
-Day = Enum {
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-    "Sunday",
-}
-
-Month = Enum {
-    "January",
-    "Febraury",
-    "March",
-    "April",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-}
 
 return Enum

@@ -1,10 +1,10 @@
 ---@class Class
 ---@field is_instance fun(inst: Class): boolean
 ---
----@field __index     function|table
+---@field __index function|table
 
 ---See: https://github.com/penguin0616/dst_gamescripts/blob/master/class.lua
----@param ctor?  fun(inst: Class, ...)  Constructor function.
+---@param ctor? fun(inst: Class, ...)  Constructor function.
 local function Class(ctor)
     ---@type Class
     ---@diagnostic disable-next-line: missing-fields
