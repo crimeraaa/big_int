@@ -13,28 +13,26 @@ local function rawtostring(t)
 end
 
 ---@class Enum: Class
----@field private m_enums  {[string|integer]: Enum.Value}
----@field private m_names  {[Enum.Value]: string}
----@field private m_string string
----@field [string|integer] Enum.Value Map enum names to enum values.
----@field [Enum.Value] string Map enum values back to enum names.
+---@field m_enums  {[string|integer]: Enum.Value} Map names, values to unique enums.
+---@field m_names  {[Enum.Value]: string} May unique enums back to names.
+---@field m_string string
+---@field [string|integer] Enum.Value
+---@field [Enum.Value] string
 ---
 ---@overload fun(keys: string[]): Enum
-Enum = Class()
-
----`self` is created by the `__call()` method assinged in `Class()`.
+---@param inst Enum     Created and passed by `__call()` in `Class()`.
 ---@param keys string[] Array of string names for your enums.
-function Enum:init(keys)
-    self.m_enums = {}
-    self.m_names = {}
-    self.m_string = rawtostring(self):gsub("table", "Enum")
+Enum = Class(function(inst, keys)
+    inst.m_enums = {}
+    inst.m_names = {}
+    inst.m_string = rawtostring(inst):gsub("table", "Enum")
     for i, key in ipairs(keys) do
-        local enum = Enum.Value(key, i, self)
-        self.m_enums[key]  = enum
-        self.m_enums[i]    = enum
-        self.m_names[enum] = key
+        local enum = Enum.Value(key, i, inst)
+        inst.m_enums[key]  = enum
+        inst.m_enums[i]    = enum
+        inst.m_names[enum] = key
     end
-end
+end)
 
 function Enum:__index(key)
     local val ---@type Enum.Value|string|nil
@@ -54,21 +52,20 @@ function Enum:__tostring()
 end
 
 ---@class Enum.Value: Class
----@field private m_value  integer
----@field private m_parent Enum     Pointer to parent enum type to ensure correctness.
----@field private m_string string
+---@field m_value  integer
+---@field m_parent Enum     Pointer to parent enum type to ensure correctness.
+---@field m_string string
 ---
 ---@overload fun(key: string, value: integer, parent: Enum): Enum.Value
-Enum.Value = Class()
-
+---@param inst   Enum.Value
 ---@param key    string
 ---@param value  integer
 ---@param parent Enum
-function Enum.Value:init(key, value, parent)
-    self.m_value  = value
-    self.m_parent = parent
-    self.m_string = string.format("Enum[%i]: %s", value, key)
-end
+Enum.Value = Class(function(inst, key, value, parent)
+    inst.m_value  = value
+    inst.m_parent = parent
+    inst.m_string = string.format("Enum[%i]: %s", value, key)
+end)
 
 function Enum.Value:value()
     return self.m_value

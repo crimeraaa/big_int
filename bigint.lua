@@ -1,39 +1,37 @@
 local Class = require "class"
 
--- local BigInt
+local BigInt
 
 ---@class BigInt: Class
----@field private m_digits   integer[]  Stored in a little-endian fashion.
----@field private m_length   integer    Number of active values in `digits`.
----@field private m_capacity integer    Number of total values in `digits`.
----@field private m_negative boolean    For simplicity even 0 is positive.
+---@field m_digits   integer[]  Stored in a little-endian fashion.
+---@field m_length   integer    Number of active values in `digits`.
+---@field m_capacity integer    Number of total values in `digits`.
+---@field m_negative boolean    For simplicity even 0 is positive.
 ---
 ---@operator add: BigInt
 ---@operator sub: BigInt
 ---@operator unm: BigInt
+---
 ---@overload fun(value?: BigInt|integer|string): BigInt
-BigInt = Class()
-BigInt.BASE = 10
-
-BigInt.tmp_a = BigInt()
-BigInt.tmp_b = BigInt()
-
+---@param inst   BigInt
 ---@param value? integer|string|BigInt
-function BigInt:init(value)
-    self.m_digits   = {}
-    self.m_length   = 0
-    self.m_capacity = 0
-    self.m_negative = false
+BigInt = Class(function(inst, value)
+    inst.m_digits   = {}
+    inst.m_length   = 0
+    inst.m_capacity = 0
+    inst.m_negative = false
     if BigInt.is_instance(value) then
-        self:set_bigint(value)
+        inst:set_bigint(value)
     elseif type(value) == "number" then
-        self:set_integer(value)
+        inst:set_integer(value)
     elseif type(value) == "string" then
-        self:set_string(value)
+        inst:set_string(value)
     elseif value == nil then
-        self:set_integer(0)
+        inst:set_integer(0)
     end
-end
+end)
+
+BigInt.BASE = 10
 
 --- UTILITY --------------------------------------------------------------- {{{1
 
