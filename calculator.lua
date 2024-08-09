@@ -19,8 +19,9 @@ local Token
 ---@field type Token.Type
 ---@field data string
 ---
----@overload fun(type?: Token.Type, data?: string): Token
+---@overload fun(tktype: Token.Type, data?: string): Token
 ---@overload fun(token: Token): Token
+---@overload fun(): Token
 ---
 ---@param inst Token
 ---@param tktype? Token.Type|Token
@@ -32,38 +33,31 @@ Token = Class(function(inst, tktype, data)
     if token then
         inst.type = token.type
         inst.data = token.data
-    else
-        inst.type = tktype
-        inst.data = tktype == Token.Type.Eof and "<eof>" or data or "<error>"
+        return
     end
+    inst.type = tktype
+    inst.data = (tktype == Token.Type.Eof and "<eof>") or data or tktype
 end)
 
 ---@enum Token.Type
 Token.Type = {
-    ['('] = 1, '(',
-    [')'] = 2, ')',
-    ['+'] = 3, '+',
-    ['-'] = 4, '-',
-    ['*'] = 5, '*',
-    ['/'] = 6, '/',
-    ['%'] = 7, '%',
-    ['^'] = 8, '^',
-    ['!'] = 9, '!',
+    LeftParen   = '(',  RightParen = ')',
+    Plus        = '+',  Dash       = '-',
+    Star        = '*',  Slash      = '/',
+    Percent     = '%',  Caret      = '^',
+    Exclamation = '!',
     
-    ["=="] = 10, "==",
-    ["~="] = 11, "~=",
-    ['<'] = 12, '<',
-    ["<="] = 13, "<=",
-    ['>'] = 14, '>',
-    [">="] = 15, ">=",
+    EqualEqual  = "==", TildeEqual      = "~=",
+    LeftAngle   = '<',  LeftAngleEqual  = "<=",
+    RightAngle  = '>',  RightAngleEqual = ">=",
 
-    Number = 16, "Number",
-    Error = 17, "Error",
-    Eof = 18, "Eof",
+    Number      = "<number>",
+    Error       = "<error>",
+    Eof         = "<eof>",
 }
 
 Token.ZERO = Token(Token.Type.Number, '0')
-Token.MUL = Token(Token.Type['*'], '*')
+Token.MUL  = Token(Token.Type.Star)
 
 --- LEXER ----------------------------------------------------------------- {{{1
 
@@ -78,9 +72,9 @@ Token.MUL = Token(Token.Type['*'], '*')
 ---@param data string
 local Lexer = Class(function(inst, data)
     inst.m_index = 1
-    inst.m_data = ""
+    inst.m_data  = ""
     inst.m_input = data
-    inst.m_rest = data
+    inst.m_rest  = data
 end)
 
 ---@param tktype? Token.Type
@@ -101,17 +95,33 @@ function Lexer:found_pattern(pattern)
     ---only look for matches at the beginning of `lexer.rest`, we can assume
     ---`stop` is the same as the substring length.
     local _, len, data = self:match_start_of_rest(pattern)
-    if not (len and data) then return false end
+    if not (len and data) then
+        return false
+    end
     local newindex = self.m_index + len
-    self.m_index = newindex
-    self.m_data = data
-    self.m_rest = self.m_input:sub(newindex)
+    self.m_index   = newindex
+    self.m_data    = data
+    self.m_rest    = self.m_input:sub(newindex)
     return true
 end
 
 function Lexer:skip_whitespace()
     return self:found_pattern("%s+")
 end
+
+local singlechars = {
+    ['('] = Token.Type.LeftParen,   [')'] = Token.Type.RightParen,
+    ['+'] = Token.Type.Plus,        ['-'] = Token.Type.Dash,
+    ['*'] = Token.Type.Star,        ['/'] = Token.Type.Slash,
+    ['%'] = Token.Type.Percent,     ['^'] = Token.Type.Caret,
+    ['!'] = Token.Type.Exclamation,
+}
+
+local doublechars = {
+    ["=="] = Token.Type.EqualEqual, ["~="] = Token.Type.TildeEqual,
+    ['<']  = Token.Type.LeftAngle,  ["<="] = Token.Type.LeftAngleEqual,
+    ['>']  = Token.Type.RightAngle, [">="] = Token.Type.RightAngleEqual,
+}
 
 ---@nodiscard
 function Lexer:scan_token()
@@ -121,13 +131,14 @@ function Lexer:scan_token()
         return self:make_token(Token.Type.Number)
     end
     -- Guaranteed single-character tokens.
-    if self:found_pattern("[-+*/%%^!()]") then
-        return self:make_token(Token.Type[self.m_data])
+    -- Note we put '-' first because otherwise it'll be considered a range.
+    if self:found_pattern("[-()+*/%%^!]") then
+        return self:make_token(singlechars[self.m_data])
     end
     -- Potentially double-character tokens.
     -- In the case of single '=', there is no mapping for it so it is nil.
     if self:found_pattern("[=~<>]=?") then
-        return self:make_token(Token.Type[self.m_data])
+        return self:make_token(doublechars[self.m_data])
     end
     -- Still have non-whitespace stuff left in the rest string?
     local more = self:found_pattern("[%S]+")
@@ -146,9 +157,9 @@ end
 ---@overload fun(): Parser
 ---@param inst Parser
 local Parser = Class(function(inst)
-    inst.m_consumed = Token()
+    inst.m_consumed  = Token()
     inst.m_lookahead = Token()
-    inst.m_equation = {n = 0}
+    inst.m_equation  = {n = 0}
 end)
 
 ---@alias Parser.Fn fun(self: Parser, lexer: Lexer)
@@ -159,29 +170,47 @@ end)
 ---@field prec Parser.Prec
 ---
 ---@overload fun(prefixfn?: Parser.Fn, infixfn?: Parser.Fn, prec?: Parser.Prec): Parser.Rule
----@param inst Parser.Rule
+---
+---@param inst      Parser.Rule
 ---@param prefixfn? Parser.Fn
----@param infixfn? Parser.Fn
----@param prec? Parser.Prec
+---@param infixfn?  Parser.Fn
+---@param prec?     Parser.Prec
 Parser.Rule = Class(function(inst, prefixfn, infixfn, prec)
     inst.prefixfn = prefixfn
-    inst.infixfn = infixfn
-    inst.prec = prec or Parser.Prec.None
+    inst.infixfn  = infixfn
+    inst.prec     = prec or Parser.Prec.None
 end)
 
 ---@enum Parser.Prec
 Parser.Prec = {
-    None = 1, "None",
-    Equality = 2, "Equality", -- == ~=
-    Relational = 3, "Relational", -- < <= >= >
-    Additive = 4, "Additive", -- + -
+    None           = 1, "None",
+    Equality       = 2, "Equality",     -- == ~=
+    Relational     = 3, "Relational",   -- < <= >= >
+    Additive       = 4, "Additive",     -- + -
     Multiplicative = 5, "Multiplicative", -- / * %
-    Exponential = 6, -- ^
-    Unary = 7, "Unary", -- + - !
+    Exponential    = 6,                 -- ^
+    Unary          = 7, "Unary",        -- - !
 }
 
+---@param lexer Lexer
+---@param tktype Token.Type
+function Parser:expect_lookahead(lexer, tktype)
+    if not self:check_lookahead(tktype) then
+        self:throw_error("Expected '%s'", tktype)
+    end
+    self:update_lookahead(lexer)
+end
+
+---@param lexer Lexer
+function Parser:update_lookahead(lexer)
+    self.m_consumed, self.m_lookahead = self.m_lookahead, lexer:scan_token()
+    if self:check_lookahead(Token.Type.Error) then
+        self:throw_error("Unexpected symbol")
+    end
+end
+
 ---@param ... Token.Type
-function Parser:match_lookahead(...)
+function Parser:check_lookahead(...)
     for _, tktype in ipairs({...}) do
         if self.m_lookahead.type == tktype then
             return true
@@ -191,27 +220,9 @@ function Parser:match_lookahead(...)
 end
 
 ---@param lexer Lexer
-function Parser:update_lookahead(lexer)
-    self.m_consumed = self.m_lookahead
-    self.m_lookahead = lexer:scan_token()
-    if self:match_lookahead(Token.Type.Error) then
-        self:throw_error("Unexpected symbol")
-    end
-end
-
----@param lexer Lexer
----@param tktype Token.Type
-function Parser:expect_lookahead(lexer, tktype)
-    if not self:match_lookahead(tktype) then
-        self:throw_error("Expected '%s'", Token.Type[tktype])
-    end
-    self:update_lookahead(lexer)
-end
-
----@param lexer Lexer
 ---@param prec Parser.Prec
-function Parser:precedence(lexer, prec)
-    local parserule = self.rules[self.m_lookahead.type]
+function Parser:parse_precedence(lexer, prec)
+    local parserule = self:get_parserule(self.m_lookahead.type)
     if not (parserule and parserule.prefixfn) then
         self:throw_error("Expected a prefix expression")
     end
@@ -219,26 +230,30 @@ function Parser:precedence(lexer, prec)
     parserule.prefixfn(self, lexer)
     
     while true do
-        parserule = self.rules[self.m_lookahead.type]
+        parserule = self:get_parserule(self.m_lookahead.type)
         if not (parserule and prec <= parserule.prec) then
             break
+        end
+        -- If this passes I messed up somewhere (e.g. bad mapped precedence)
+        if not parserule.infixfn then
+            self:throw_error("Expected an infix expression")
         end
         self:update_lookahead(lexer)
         parserule.infixfn(self, lexer)
     end
 end
 
----@param info string
----@param ... string|number
+---@param info  string
+---@param ...   string|number
 function Parser:throw_error(info, ...)
     info = info:format(...)
-    local culprit, where = self.m_lookahead, self.m_consumed
-    error(string.format("%s at '%s' near '%s'", info, culprit.data, where.data))
+    local cultprit, where = self.m_lookahead, self.m_consumed
+    error(string.format("%s at '%s' near '%s'", info, cultprit.data, where.data))
 end
 
 ---@param lexer Lexer
-function Parser:expression(lexer)
-    self:precedence(lexer, Parser.Prec.None + 1)
+function Parser:parse_expression(lexer)
+    self:parse_precedence(lexer, Parser.Prec.None + 1)
 end
 
 --- PREFIX EXPRESSIONS ---------------------------------------------------- {{{2
@@ -247,10 +262,10 @@ end
 function Parser:push_equation(token)
     local i = self.m_equation.n + 1
     self.m_equation[i] = token and token.data or self.m_consumed.data
-    self.m_equation.n = i
+    self.m_equation.n  = i
 end
 
-function Parser:print()
+function Parser:print_equation()
     print(table.concat(self.m_equation, ' '))
 end
 
@@ -262,22 +277,24 @@ end
 -- Converts prefix `-1` to postfix `0 1 -`.
 function Parser:unary(lexer)
     local token = Token(self.m_consumed)
-    self:push_equation(Token.ZERO)
-    self:precedence(lexer, Parser.Prec.Unary)
-    self:push_equation(token)
+    if token.type == Token.Type.Dash then
+        self:push_equation(Token.ZERO)
+        self:parse_precedence(lexer, Parser.Prec.Unary)
+        self:push_equation(token)
+    end
 end
 
--- Factorials are a postfix unary expression, `self:precedence()` will not
--- work because that assumes we have a prefix expression following us.
+-- Factorials aren't infix expressions but rather postfix unary expressions.
+-- However for our purposes the parser is in a better state to parse them as if
+-- they were an infix rather than a prefix.
 function Parser:postfix(lexer)
-    local token = Token(self.m_consumed)
-    self:push_equation(token)
+    self:push_equation(self.m_consumed)
 end
 
 ---@param lexer Lexer
-function Parser:grouping(lexer)
-    self:expression(lexer)
-    self:expect_lookahead(lexer, Token.Type[')'])
+function Parser:group(lexer)
+    self:parse_expression(lexer)
+    self:expect_lookahead(lexer, Token.Type.RightParen)
 end
 
 --- 2}}} -----------------------------------------------------------------------
@@ -285,40 +302,42 @@ end
 --- INFIX EXPRESSIONS ----------------------------------------------------- {{{2
 
 function Parser:binary(lexer)
+    -- Do a deep copy as a mere reference to `self.m_consumed` may be updated.
     local token = Token(self.m_consumed)
-    -- 0 = right associative, 1 = left associative.
-    local assoc = token.type == Token.Type['^'] and 0 or 1
-    self:precedence(lexer, self.rules[self.m_consumed.type].prec + assoc)
+    local assoc = (token.type == Token.Type.Caret) and 0 or 1 -- L/R associative?
+    self:parse_precedence(lexer, self:get_parserule(token.type).prec + assoc)
     self:push_equation(token)
-end
-
-function Parser:multiply(lexer)
-    self:grouping(lexer)
-    self:push_equation(Token.MUL)
 end
 
 --- 2}}} -----------------------------------------------------------------------
 
-Parser.rules = {
-    [Token.Type['(']] =  Parser.Rule(Parser.grouping, Parser.multiply, Parser.Prec.Multiplicative),
+---@see Token.Type values.
+local parserules = {
+    ['(']  = Parser.Rule(Parser.group, nil,            Parser.Prec.None),
     
-    [Token.Type['+']] =  Parser.Rule(nil,          Parser.binary,  Parser.Prec.Additive),
-    [Token.Type['-']] =  Parser.Rule(Parser.unary, Parser.binary,  Parser.Prec.Additive),
-    [Token.Type['*']] =  Parser.Rule(nil,          Parser.binary,  Parser.Prec.Multiplicative),
-    [Token.Type['/']] =  Parser.Rule(nil,          Parser.binary,  Parser.Prec.Multiplicative),
-    [Token.Type['%']] =  Parser.Rule(nil,          Parser.binary,  Parser.Prec.Multiplicative),
-    [Token.Type['^']] =  Parser.Rule(nil,          Parser.binary,  Parser.Prec.Exponential),
-    [Token.Type['!']] =  Parser.Rule(nil,          Parser.postfix, Parser.Prec.Unary),
+    ['+']  = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Additive),
+    ['-']  = Parser.Rule(Parser.unary, Parser.binary,  Parser.Prec.Additive),
+    ['*']  = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Multiplicative),
+    ['/']  = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Multiplicative),
+    ['%']  = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Multiplicative),
+    ['^']  = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Exponential),
+    ['!']  = Parser.Rule(nil,          Parser.postfix, Parser.Prec.Unary),
 
-    [Token.Type["=="]] = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Equality),
-    [Token.Type["~="]] = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Equality),
-    [Token.Type['<']] =  Parser.Rule(nil,          Parser.binary,  Parser.Prec.Equality),
-    [Token.Type["<="]] = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Equality),
-    [Token.Type['>']] =  Parser.Rule(nil,          Parser.binary,  Parser.Prec.Equality),
-    [Token.Type[">="]] = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Equality),
+    ["=="] = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Equality),
+    ["~="] = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Equality),
+    ['<']  = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Relational),
+    ["<="] = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Relational),
+    ['>']  = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Relational),
+    [">="] = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Relational),
 
-    [Token.Type.Number] = Parser.Rule(Parser.number),
+    ["<number>"] = Parser.Rule(Parser.number),
 }
+
+---@param tktype Token.Type
+function Parser:get_parserule(tktype)
+    return parserules[tktype]
+end
+
 
 --- 1}}} -----------------------------------------------------------------------
 
@@ -328,12 +347,14 @@ local function compile(input)
     
     -- Ensure lookahead token is something we can start with
     parser:update_lookahead(lexer)
-    while not parser:match_lookahead(Token.Type.Error, Token.Type.Eof) do
-        parser:expression(lexer)
+    while not parser:check_lookahead(Token.Type.Error, Token.Type.Eof) do
+        parser:parse_expression(lexer)
     end
-    parser:print()
+    parser:print_equation()
 end
 
+printfln("To exit (Windows): Type <CTRL-Z> then hit <ENTER>.")
+printfln("To exit (Linux):   Type <CTRL-D>.")
 while true do
     printf("%s> ", arg[0])
     local input = io.stdin:read("*l")

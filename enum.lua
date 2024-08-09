@@ -13,11 +13,12 @@ local function rawtostring(t)
 end
 
 ---@class Enum : Class
----@field m_enums {[string|integer]: Enum.Value} Map names, values to unique enums.
----@field m_names {[Enum.Value]: string} May unique enums back to names.
+---@field m_enums  {[string|integer]: Enum.Value} Map names, values to unique enums.
+---@field m_names  {[Enum.Value]: string} May unique enums back to names.
 ---@field m_string string
+---
 ---@field [string|integer] Enum.Value
----@field [Enum.Value] string
+---@field [Enum.Value]     string
 ---
 ---@overload fun(keys: string[]): Enum
 ---@param inst Enum Created and passed by `__call()` in `Class()`.
@@ -52,28 +53,23 @@ function Enum:__tostring()
 end
 
 ---@class Enum.Value : Class
----@field m_value integer
----@field m_parent Enum Pointer to parent enum type to ensure correctness.
+---@field m_value  integer
+---@field m_parent Enum     Pointer to parent enum type to ensure correctness.
 ---@field m_string string
 ---
 ---@overload fun(key: string, value: integer, parent: Enum): Enum.Value
----@param inst Enum.Value
----@param key string
----@param value integer
+---@param inst   Enum.Value
+---@param key    string
+---@param value  integer
 ---@param parent Enum
 Enum.Value = Class(function(inst, key, value, parent)
-    inst.m_value = value
+    inst.m_value  = value
     inst.m_parent = parent
     inst.m_string = string.format("Enum[%i]: %s", value, key)
 end)
 
 function Enum.Value:value()
     return self.m_value
-end
-
-local function check_types(x, y)
-    local fn = Enum.Value.is_instance
-    return fn(x), fn(y)
 end
 
 local function throw_error(action, x, y)
@@ -153,14 +149,14 @@ function Enum.Value:__lt(y)
     if not self:check_comparison(y) then
         return false
     end
-    return (not quick_eq(self, y) and quick_lt(self, y))
+    return not quick_eq(self, y) and quick_lt(self, y)
 end
 
 function Enum.Value:__le(y)
     if not self:check_comparison(y) then
         return false
     end
-    return (quick_eq(self, y) or quick_lt(self, y))
+    return quick_eq(self, y) or quick_lt(self, y)
 end
 
 function Enum.Value:__tostring()

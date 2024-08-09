@@ -2,11 +2,11 @@ local Class = require "class"
 
 local BigInt
 
----@class BigInt : Class
----@field m_digits integer[] Stored in a little-endian fashion.
----@field m_length integer Number of active values in `digits`.
----@field m_capacity integer Number of total values in `digits`.
----@field m_negative boolean For simplicity even 0 is positive.
+---@class BigInt: Class
+---@field m_digits   integer[] Stored in a little-endian fashion.
+---@field m_length   integer   Number of active values in `digits`.
+---@field m_capacity integer   Number of total values in `digits`.
+---@field m_negative boolean   For simplicity even 0 is positive.
 ---
 ---@operator add: BigInt
 ---@operator sub: BigInt
@@ -16,8 +16,8 @@ local BigInt
 ---@param inst BigInt
 ---@param value? integer|string|BigInt
 BigInt = Class(function(inst, value)
-    inst.m_digits = {}
-    inst.m_length = 0
+    inst.m_digits   = {}
+    inst.m_length   = 0
     inst.m_capacity = 0
     inst.m_negative = false
     if BigInt.is_instance(value) then
@@ -35,7 +35,7 @@ BigInt.BASE = 10
 
 --- UTILITY --------------------------------------------------------------- {{{1
 
----@param self BigInt
+---@param self  BigInt
 ---@param digit integer
 local function check_digit(self, digit)
     return 0 <= digit and digit < self.BASE
@@ -44,9 +44,8 @@ end
 ---@param self  BigInt
 ---@param digit integer
 local function push_msd(self, digit)
-    if not check_digit(self, digit) then
-        return false
-    end
+    if not check_digit(self, digit) then return false end
+
     local i = self:length() + 1
     self:write_at(i, digit)
     self:set_length(i)
@@ -168,6 +167,7 @@ end
 function BigInt:resize(newcap)
     local oldcap = self:capacity()
     if newcap <= oldcap then return end
+
     self:clear(self:length() + 1, newcap)
     self:set_capacity(newcap)
 end
@@ -212,7 +212,7 @@ end
 
 --- ITERATORS ------------------------------------------------------------- {{{1
 
----@param self BigInt
+---@param self  BigInt
 ---@param index integer
 local function check_index(self, index)
     return 1 <= index and index <= self:length()
@@ -336,7 +336,6 @@ function BigInt:add(x, y)
     -- Since 0 is not negative here, we assume that addition of 2 negatives
     -- will always result in a negative.
     self:set_negative(xneg and yneg)
-
     -- Include 1 more for the very last carry if it extends our length.
     local len   = pick_greater_length(x, y) + 1
     local carry = 0
