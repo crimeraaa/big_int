@@ -14,15 +14,15 @@ local format = string.format
 ---@overload fun(): Parser
 ---@param self      Parser
 local Parser = Class(function(self)
-    self.m_consumed  = Token.EOF
-    self.m_lookahead = Token.EOF
+    self.m_consumed  = Token()
+    self.m_lookahead = Token()
     self.m_equation  = {n = 0}
     self.m_results   = {n = 0}
 end)
 
 function Parser:reset()
-    self.m_consumed   = Token.EOF
-    self.m_lookahead  = Token.EOF
+    self.m_consumed:set_token(Token.EOF)
+    self.m_lookahead:set_token(Token.EOF)
     self.m_equation.n = 0
     self.m_results.n  = 0
 end
@@ -69,7 +69,9 @@ end
 
 ---@param lexer Lexer
 function Parser:update_lookahead(lexer)
-    self.m_consumed, self.m_lookahead = self.m_lookahead, lexer:scan_token()
+    self.m_consumed:set_token(self.m_lookahead)
+    self.m_lookahead:set_token(lexer:scan_token())
+    -- self.m_consumed, self.m_lookahead = self.m_lookahead, lexer:scan_token()
     if self:check_lookahead(Token.Type.Error) then
         self:throw_error("Unexpected symbol")
     end
@@ -96,7 +98,7 @@ function Parser:parse_precedence(lexer, prec)
     end
     self:update_lookahead(lexer)
     parserule.prefixfn(self, lexer)
-    
+
     while true do
         parserule = self:get_parserule(self.m_lookahead.type)
         if not (parserule and prec <= parserule.prec) then
@@ -185,7 +187,7 @@ function Parser:push_result(result)
         local converted = tonumber(result)
         if not converted then
             self:throw_error("Non-number")
-            return                
+            return
         end
         result = converted
     end
@@ -198,12 +200,12 @@ end
 
 local unopr = {
     ['-'] = function(x) return -x end,
-    ['!'] = function(x) 
+    ['!'] = function(x)
         local i = tointeger(x)
         if (not i) or (i < 0) then
             error(format("Attempt to get factorial of '%s'", tostring(x)))
         end
-        return factorial_acc(i, 1) 
+        return factorial_acc(i, 1)
     end,
 }
 
@@ -297,7 +299,7 @@ end
 ---@see Token.Type values.
 local PARSERULES = {
     ['(']  = Rule(Parser.group, nil,            Prec.None),
-    
+
     ['+']  = Rule(nil,          Parser.binary,  Prec.Additive),
     ['-']  = Rule(Parser.unary, Parser.binary,  Prec.Additive),
     ['*']  = Rule(nil,          Parser.binary,  Prec.Multiplicative),

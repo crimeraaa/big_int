@@ -6,6 +6,7 @@ local Token = require "token"
 ---@field m_lexeme string  The current lexeme substring.
 ---@field m_input  string  The full string of the user's input.
 ---@field m_rest   string  Slice of the full string starting at the current lexeme.
+---@field m_token  Token   To be used for copying by `Parser`.
 ---
 ---@overload fun(data?: string): Lexer
 ---@param self Lexer  Created and passed by `__call()` in `Class()`.
@@ -20,11 +21,14 @@ function Lexer:set_input(input)
     self.m_lexeme = ""
     self.m_input  = input
     self.m_rest   = input
+    self.m_token  = Token()
 end
 
 ---@param tktype? Token.Type
 function Lexer:make_token(tktype)
-    return Token(tktype or Token.Type.Error, self.m_lexeme)
+    self.m_token:set_token(tktype or Token.Type.Error, self.m_lexeme)
+    return self.m_token
+    -- return Token(tktype or Token.Type.Error, self.m_lexeme)
 end
 
 function Lexer:found_pattern(pattern)
@@ -65,7 +69,7 @@ local doublechars = {
 function Lexer:scan_token()
     self:skip_whitespace()
     -- Digits followed by 0 or more digit-likes.
-    if self:found_pattern("%d[%d,_.]*") then
+    if self:found_pattern("%d[%w,_.]*") then
         return self:make_token(Token.Type.Number)
     end
     -- Guaranteed single-character tokens.

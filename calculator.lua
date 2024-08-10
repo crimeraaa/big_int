@@ -1,3 +1,16 @@
+---Set the environment of the current running thread to throw when you read/write
+---undeclared globals. Reading undeclared keys on `_G` itself though is fine.
+---
+---Stack level 0 is the current running thread.
+---Stack level 1 is the caller of 'setfenv()'.
+---
+---@see https://www.lua.org/manual/5.1/manual.html#pdf-setfenv
+local strict = require "strict"
+---@diagnostic disable-next-line: param-type-mismatch
+setfenv(0, strict(_G))
+---@diagnostic disable-next-line: param-type-mismatch
+setfenv(1, strict(_G))
+
 local Token  = require "token"
 local Lexer  = require "lexer"
 local Parser = require "parser"

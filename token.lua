@@ -8,7 +8,7 @@ local Type = {
     Star        = '*',  Slash      = '/',
     Percent     = '%',  Caret      = '^',
     Exclamation = '!',
-    
+
     EqualEqual  = "==", TildeEqual      = "~=",
     LeftAngle   = '<',  LeftAngleEqual  = "<=",
     RightAngle  = '>',  RightAngleEqual = ">=",
@@ -28,10 +28,14 @@ local Type = {
 ---
 ---@param self    Token
 ---@param tktype? Token.Type|Token
----@param data?   string
-Token = Class(function(self, tktype, data)
-    tktype = tktype or Type.Eof
+---@param tkdata? string
+Token = Class(function(self, tktype, tkdata)
+    self:set_token(tktype or Type.Eof, tkdata)
+end)
 
+---@param tktype  Token|Token.Type
+---@param tkdata? string
+function Token:set_token(tktype, tkdata)
     -- Do a deep copy if applicable.
     ---@type false|Token
     local token = Token.is_instance(tktype) and tktype
@@ -40,9 +44,14 @@ Token = Class(function(self, tktype, data)
         self.data = token.data
         return
     end
+    ---@cast tktype Token.Type
     self.type = tktype
-    self.data = (tktype == Type.Eof and "<eof>") or data or tktype
-end)
+    if tktype == Type.Eof then
+        self.data = "<eof>"
+    else
+        self.data = tkdata or tktype
+    end
+end
 
 Token.Type = Type
 
