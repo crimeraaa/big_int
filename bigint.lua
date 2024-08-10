@@ -2,6 +2,8 @@ local Class = require "class"
 
 local BigInt
 
+local abs, floor = math.abs, math.floor
+
 ---@class BigInt: Class
 ---@field m_digits   integer[] Stored in a little-endian fashion.
 ---@field m_length   integer   Number of active values in `digits`.
@@ -13,21 +15,21 @@ local BigInt
 ---@operator unm: BigInt
 ---
 ---@overload fun(value?: BigInt|integer|string): BigInt
----@param inst BigInt
+---@param self BigInt
 ---@param value? integer|string|BigInt
-BigInt = Class(function(inst, value)
-    inst.m_digits   = {}
-    inst.m_length   = 0
-    inst.m_capacity = 0
-    inst.m_negative = false
+BigInt = Class(function(self, value)
+    self.m_digits   = {}
+    self.m_length   = 0
+    self.m_capacity = 0
+    self.m_negative = false
     if BigInt.is_instance(value) then
-        inst:set_bigint(value)
+        self:set_bigint(value)
     elseif type(value) == "number" then
-        inst:set_integer(value)
+        self:set_integer(value)
     elseif type(value) == "string" then
-        inst:set_string(value)
+        self:set_string(value)
     elseif value == nil then
-        inst:set_integer(0)
+        self:set_integer(0)
     end
 end)
 
@@ -55,16 +57,16 @@ end
 ---@param value integer
 function BigInt:set_integer(value)
     if value < 0 then
-        value = math.abs(value)
+        value = abs(value)
         self:set_negative(true)
     else
         self:set_negative(false)
     end
 
-    value = math.floor(value)
+    value = floor(value)
     while value ~= 0 do
-        local next  = math.floor(value / self.BASE)
-        local digit = math.floor(value % self.BASE)
+        local next  = floor(value / self.BASE)
+        local digit = floor(value % self.BASE)
         push_msd(self, digit)
         value = next
     end
@@ -126,7 +128,10 @@ end
 
 ---@param index integer
 function BigInt:read_at(index)
-    return self.m_digits[index] or 0
+    if 1 <= index and index <= self:length() then
+        return self.m_digits[index]
+    end
+    return 0
 end
 
 ---@param base  integer
@@ -344,8 +349,8 @@ function BigInt:add(x, y)
     for i in self:iter_lsd() do
         local sum = x:read_at(i) + y:read_at(i) + carry
         if (sum >= self.BASE) then
-            carry = math.floor(sum / self.BASE)
-            sum   = math.floor(sum % self.BASE)
+            carry = floor(sum / self.BASE)
+            sum   = floor(sum % self.BASE)
         else
             carry = 0
         end

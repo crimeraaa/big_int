@@ -3,6 +3,8 @@ local Class = require "class"
 ---Think of this like `enum class` in C++.
 local Enum
 
+local format = string.format
+
 -- Hack to avoid infinite recursion with the `__tostring()` metamethod.
 local function rawtostring(t)
     local mt = getmetatable(t) -- Save the current metatable
@@ -12,26 +14,28 @@ local function rawtostring(t)
     return ret
 end
 
+---@alias Enum.Key string|integer
+
 ---@class Enum : Class
----@field m_enums  {[string|integer]: Enum.Value} Map names, values to unique enums.
+---@field m_enums  {[Enum.Key]: Enum.Value} Map names, values to unique enums.
 ---@field m_names  {[Enum.Value]: string} May unique enums back to names.
 ---@field m_string string
 ---
----@field [string|integer] Enum.Value
----@field [Enum.Value]     string
+---@field [Enum.Key]   Enum.Value
+---@field [Enum.Value] string
 ---
 ---@overload fun(keys: string[]): Enum
----@param inst Enum Created and passed by `__call()` in `Class()`.
+---@param self Enum     Created and passed by `__call()` in `Class()`.
 ---@param keys string[] Array of string names for your enums.
-Enum = Class(function(inst, keys)
-    inst.m_enums = {}
-    inst.m_names = {}
-    inst.m_string = rawtostring(inst):gsub("table", "Enum")
+Enum = Class(function(self, keys)
+    self.m_enums = {}
+    self.m_names = {}
+    self.m_string = rawtostring(self):gsub("table", "Enum")
     for i, key in ipairs(keys) do
-        local enum = Enum.Value(key, i, inst)
-        inst.m_enums[key]  = enum
-        inst.m_enums[i]    = enum
-        inst.m_names[enum] = key
+        local enum = Enum.Value(key, i, self)
+        self.m_enums[key]  = enum
+        self.m_enums[i]    = enum
+        self.m_names[enum] = key
     end
 end)
 
@@ -43,7 +47,7 @@ function Enum:__index(key)
         val = self.m_names[key]
     end
     if not val then
-        error(string.format("Unknown Enum key '%s'", tostring(key)))
+        error(format("Unknown Enum key '%s'", tostring(key)))
     end
     return val
 end
@@ -58,14 +62,14 @@ end
 ---@field m_string string
 ---
 ---@overload fun(key: string, value: integer, parent: Enum): Enum.Value
----@param inst   Enum.Value
+---@param self   Enum.Value
 ---@param key    string
 ---@param value  integer
 ---@param parent Enum
-Enum.Value = Class(function(inst, key, value, parent)
-    inst.m_value  = value
-    inst.m_parent = parent
-    inst.m_string = string.format("Enum[%i]: %s", value, key)
+Enum.Value = Class(function(self, key, value, parent)
+    self.m_value  = value
+    self.m_parent = parent
+    self.m_string = format("Enum[%i]: %s", value, key)
 end)
 
 function Enum.Value:value()
@@ -73,7 +77,7 @@ function Enum.Value:value()
 end
 
 local function throw_error(action, x, y)
-    error(string.format("Cannot %s '%s' and '%s'", action, tostring(x), tostring(y)))
+    error(format("Cannot %s '%s' and '%s'", action, tostring(x), tostring(y)))
 end
 
 ---@private
@@ -110,7 +114,7 @@ end
 function Enum.Value:__add(y)
     local sum, enum = self:check_arithmetic(y)
     if not enum then
-        error(string.format("Invalid result Enum '%i'", sum))
+        error(format("Invalid result Enum '%i'", sum))
     end
     return enum
 end

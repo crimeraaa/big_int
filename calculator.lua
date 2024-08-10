@@ -2,22 +2,27 @@ local Token  = require "token"
 local Lexer  = require "lexer"
 local Parser = require "parser"
 
+local stdin, stdout = io.stdin, io.stdout
+
 ---@param fmt string
 ---@param ... string|number
 local function printf(fmt, ...)
-    return io.stdout:write(fmt:format(...))
+    return stdout:write(fmt:format(...))
 end
 
 ---@param fmt string
 ---@param ... string|number
 local function printfln(fmt, ...)
-    return printf(fmt .. '\n', ...)
+    return stdout:write(fmt:format(...), '\n')
 end
+
+local lexer, parser = Lexer(), Parser()
 
 ---@param input string
 local function compile(input)
-    local lexer, parser = Lexer(input), Parser()
-    
+    lexer:set_input(input)
+    parser:reset()
+
     -- Ensure lookahead token is something we can start with
     parser:update_lookahead(lexer)
     while not parser:check_lookahead(Token.Type.Error, Token.Type.Eof) do
@@ -29,9 +34,11 @@ end
 
 printfln("To exit (Windows): Type <CTRL-Z> then hit <ENTER>.")
 printfln("To exit (Linux):   Type <CTRL-D>.")
+
+local PROGNAME = arg[0]
 while true do
-    printf("%s> ", arg[0])
-    local input = io.stdin:read("*l")
+    printf("%s> ", PROGNAME)
+    local input = stdin:read("*l")
     if not input then break end
     -- Prevent the call to `Parser:throw_error()` from killing our entire program.
     local ok, msg = pcall(compile, input)

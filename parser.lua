@@ -1,6 +1,8 @@
 local Class = require "class"
 local Token = require "token"
 
+local format = string.format
+
 ---@alias NArray<T> {[integer]: T, n: integer}
 
 ---@class Parser : Class
@@ -10,35 +12,25 @@ local Token = require "token"
 ---@field m_results   NArray<number>
 ---
 ---@overload fun(): Parser
----@param inst Parser
-local Parser = Class(function(inst)
-    inst.m_consumed  = Token()
-    inst.m_lookahead = Token()
-    inst.m_equation  = {n = 0}
-    inst.m_results   = {n = 0}
+---@param self      Parser
+local Parser = Class(function(self)
+    self.m_consumed  = Token.EOF
+    self.m_lookahead = Token.EOF
+    self.m_equation  = {n = 0}
+    self.m_results   = {n = 0}
 end)
+
+function Parser:reset()
+    self.m_consumed   = Token.EOF
+    self.m_lookahead  = Token.EOF
+    self.m_equation.n = 0
+    self.m_results.n  = 0
+end
 
 ---@alias Parser.Fn fun(self: Parser, lexer: Lexer)
 
----@class Parser.Rule : Class
----@field prefixfn? Parser.Fn
----@field infixfn?  Parser.Fn
----@field prec      Parser.Prec
----
----@overload fun(prefixfn?: Parser.Fn, infixfn?: Parser.Fn, prec?: Parser.Prec): Parser.Rule
----
----@param inst      Parser.Rule
----@param prefixfn? Parser.Fn
----@param infixfn?  Parser.Fn
----@param prec?     Parser.Prec
-Parser.Rule = Class(function(inst, prefixfn, infixfn, prec)
-    inst.prefixfn = prefixfn
-    inst.infixfn  = infixfn
-    inst.prec     = prec or Parser.Prec.None
-end)
-
 ---@enum Parser.Prec
-Parser.Prec = {
+local Prec = {
     None           = 1, "None",
     Equality       = 2, "Equality",     -- == ~=
     Relational     = 3, "Relational",   -- < <= >= >
@@ -47,6 +39,23 @@ Parser.Prec = {
     Exponential    = 6,                 -- ^
     Unary          = 7, "Unary",        -- - !
 }
+
+---@class Parser.Rule : Class
+---@field prefixfn? Parser.Fn
+---@field infixfn?  Parser.Fn
+---@field prec      Parser.Prec
+---
+---@overload fun(prefixfn?: Parser.Fn, infixfn?: Parser.Fn, prec?: Parser.Prec): Parser.Rule
+---
+---@param self      Parser.Rule
+---@param prefixfn? Parser.Fn
+---@param infixfn?  Parser.Fn
+---@param prec?     Parser.Prec
+local Rule = Class(function(self, prefixfn, infixfn, prec)
+    self.prefixfn = prefixfn
+    self.infixfn  = infixfn
+    self.prec     = prec or Prec.None
+end)
 
 ---@param lexer Lexer
 ---@param tktype Token.Type
@@ -68,7 +77,9 @@ end
 
 ---@param ... Token.Type
 function Parser:check_lookahead(...)
-    for _, tktype in ipairs({...}) do
+    local argc = select('#', ...) ---@type integer
+    for i = 1, argc do
+        local tktype = select(i, ...) ---@type Token.Type
         if self.m_lookahead.type == tktype then
             return true
         end
@@ -104,12 +115,12 @@ end
 ---@param ...   string|number
 function Parser:throw_error(what, ...)
     local who, where = self.m_lookahead, self.m_consumed
-    error(string.format("%s at '%s' near '%s'", what:format(...), who.data, where.data))
+    error(format("%s at '%s' near '%s'", what:format(...), who.data, where.data))
 end
 
 ---@param lexer Lexer
 function Parser:parse_expression(lexer)
-    self:parse_precedence(lexer, Parser.Prec.None + 1)
+    self:parse_precedence(lexer, Prec.None + 1)
 end
 
 local function tointeger(value)
@@ -127,28 +138,13 @@ end
 
 ---@param n   integer
 ---@param acc integer
-local function factorial(n, acc)
-    if not tointeger(n) or n < 0 then
-        error(string.format("Attempt to get factorial of '%s'", tostring(n)))
-    end
+local function factorial_acc(n, acc)
     -- print(n..'!')
-    return n == 0 and acc or factorial(n - 1, acc * n)
+    if n == 0 then
+        return acc
+    end
+    return factorial_acc(n - 1, acc * n)
 end
-
-local operations = {
-    unary = {
-        ['-'] = function(x) return -x end,
-        ['!'] = function(x) return factorial(x, 1) end,
-    },
-    binary = {
-        ['+'] = function(x, y) return x + y end,
-        ['-'] = function(x, y) return x - y end,
-        ['*'] = function(x, y) return x * y end,
-        ['/'] = function(x, y) return x / y end,
-        ['%'] = function(x, y) return x % y end,
-        ['^'] = function(x, y) return x ^ y end,
-    }
-}
 
 --- PREFIX EXPRESSIONS ---------------------------------------------------- {{{2
 
@@ -200,17 +196,37 @@ function Parser:pop_result()
     return pop_narray(self.m_results)
 end
 
+local unopr = {
+    ['-'] = function(x) return -x end,
+    ['!'] = function(x) 
+        local i = tointeger(x)
+        if (not i) or (i < 0) then
+            error(format("Attempt to get factorial of '%s'", tostring(x)))
+        end
+        return factorial_acc(i, 1) 
+    end,
+}
+
+local binopr = {
+    ['+'] = function(x, y) return x + y end,
+    ['-'] = function(x, y) return x - y end,
+    ['*'] = function(x, y) return x * y end,
+    ['/'] = function(x, y) return x / y end,
+    ['%'] = function(x, y) return x % y end,
+    ['^'] = function(x, y) return x ^ y end,
+}
+
 ---@param kind "unary"|"binary"
 ---@param op   Token.Type
 function Parser:set_result(kind, op)
     -- Inefficient to pop then push but I don't really care at the moment
     if kind == "unary" then
         local x  = self:pop_result()
-        local fn = operations.unary[op]
+        local fn = unopr[op]
         self:push_result(fn(x))
     else
         local y, x = self:pop_result(), self:pop_result()
-        local fn   = operations.binary[op]
+        local fn   = binopr[op]
         if not fn then
             self:throw_error("'%s' operator not yet implemented", op)
         end
@@ -242,7 +258,7 @@ function Parser:unary(lexer)
     local token = Token(self.m_consumed)
     if token.type == Token.Type.Dash then
         self:push_equation(Token.ZERO) -- Rationale: -x == 0 - x
-        self:parse_precedence(lexer, Parser.Prec.Unary)
+        self:parse_precedence(lexer, Prec.Unary)
         self:push_equation(token)
         self:set_result("unary", token.type)
     end
@@ -252,7 +268,7 @@ end
 -- However for our purposes the parser is in a better state to parse them as if
 -- they were an infix rather than a prefix.
 function Parser:postfix(lexer)
-    local token = Token(self.m_consumed)
+    local token = self.m_consumed
     self:push_equation(token)
     self:set_result("unary", token.type)
 end
@@ -273,37 +289,36 @@ function Parser:binary(lexer)
     local assoc = (token.type == Token.Type.Caret) and 0 or 1 -- L/R associative?
     self:parse_precedence(lexer, self:get_parserule(token.type).prec + assoc)
     self:push_equation(token)
-    
     self:set_result("binary", token.type)
 end
 
 --- 2}}} -----------------------------------------------------------------------
 
 ---@see Token.Type values.
-local parserules = {
-    ['(']  = Parser.Rule(Parser.group, nil,            Parser.Prec.None),
+local PARSERULES = {
+    ['(']  = Rule(Parser.group, nil,            Prec.None),
     
-    ['+']  = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Additive),
-    ['-']  = Parser.Rule(Parser.unary, Parser.binary,  Parser.Prec.Additive),
-    ['*']  = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Multiplicative),
-    ['/']  = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Multiplicative),
-    ['%']  = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Multiplicative),
-    ['^']  = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Exponential),
-    ['!']  = Parser.Rule(nil,          Parser.postfix, Parser.Prec.Unary),
+    ['+']  = Rule(nil,          Parser.binary,  Prec.Additive),
+    ['-']  = Rule(Parser.unary, Parser.binary,  Prec.Additive),
+    ['*']  = Rule(nil,          Parser.binary,  Prec.Multiplicative),
+    ['/']  = Rule(nil,          Parser.binary,  Prec.Multiplicative),
+    ['%']  = Rule(nil,          Parser.binary,  Prec.Multiplicative),
+    ['^']  = Rule(nil,          Parser.binary,  Prec.Exponential),
+    ['!']  = Rule(nil,          Parser.postfix, Prec.Unary),
 
-    ["=="] = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Equality),
-    ["~="] = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Equality),
-    ['<']  = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Relational),
-    ["<="] = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Relational),
-    ['>']  = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Relational),
-    [">="] = Parser.Rule(nil,          Parser.binary,  Parser.Prec.Relational),
+    ["=="] = Rule(nil,          Parser.binary,  Prec.Equality),
+    ["~="] = Rule(nil,          Parser.binary,  Prec.Equality),
+    ['<']  = Rule(nil,          Parser.binary,  Prec.Relational),
+    ["<="] = Rule(nil,          Parser.binary,  Prec.Relational),
+    ['>']  = Rule(nil,          Parser.binary,  Prec.Relational),
+    [">="] = Rule(nil,          Parser.binary,  Prec.Relational),
 
-    ["<number>"] = Parser.Rule(Parser.number),
+    ["<number>"] = Rule(Parser.number),
 }
 
 ---@param tktype Token.Type
 function Parser:get_parserule(tktype)
-    return parserules[tktype]
+    return PARSERULES[tktype]
 end
 
 return Parser

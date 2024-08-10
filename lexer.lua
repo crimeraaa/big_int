@@ -2,30 +2,35 @@ local Class = require "class"
 local Token = require "token"
 
 ---@class Lexer : Class
----@field m_index integer Index into the full string of the current lexeme.
----@field m_data string The current lexeme substring.
----@field m_input string The full string of the user's input.
----@field m_rest string Slice of the full string starting at the current lexeme.
+---@field m_index  integer Index into the full string of the current lexeme.
+---@field m_lexeme string  The current lexeme substring.
+---@field m_input  string  The full string of the user's input.
+---@field m_rest   string  Slice of the full string starting at the current lexeme.
 ---
----@overload fun(data: string): Lexer
----@param inst Lexer  Created and passed by `__call()` in `Class()`.
----@param data string
-local Lexer = Class(function(inst, data)
-    inst.m_index = 1
-    inst.m_data  = ""
-    inst.m_input = data
-    inst.m_rest  = data
+---@overload fun(data?: string): Lexer
+---@param self Lexer  Created and passed by `__call()` in `Class()`.
+---@param input string
+local Lexer = Class(function(self, input)
+    self:set_input(input or "")
 end)
+
+---@param input string
+function Lexer:set_input(input)
+    self.m_index  = 1
+    self.m_lexeme = ""
+    self.m_input  = input
+    self.m_rest   = input
+end
 
 ---@param tktype? Token.Type
 function Lexer:make_token(tktype)
-    return Token(tktype or Token.Type.Error, self.m_data)
+    return Token(tktype or Token.Type.Error, self.m_lexeme)
 end
 
 function Lexer:found_pattern(pattern)
-    ---`lexer.rest` is equivalent to the slice `lexer.input[index:]`, and we
-    ---only look for matches at the beginning of `lexer.rest`, we can assume
-    ---`stop` is the same as the substring length.
+    -- `lexer.rest` is equivalent to the slice `lexer.input[index:]`, and we
+    -- only look for matches at the beginning of `lexer.rest`, we can assume
+    -- `stop` is the same as the substring length.
     local _, len, data = self.m_rest:find('^('..pattern..')')
     if not (len and data) then
         return false
@@ -33,7 +38,7 @@ function Lexer:found_pattern(pattern)
     ---@cast data string
     local newindex = self.m_index + len
     self.m_index   = newindex
-    self.m_data    = data
+    self.m_lexeme  = data
     self.m_rest    = self.m_input:sub(newindex)
     return true
 end
@@ -66,12 +71,12 @@ function Lexer:scan_token()
     -- Guaranteed single-character tokens.
     -- Note we put '-' first because otherwise it'll be considered a range.
     if self:found_pattern("[-()+*/%%^!]") then
-        return self:make_token(singlechars[self.m_data])
+        return self:make_token(singlechars[self.m_lexeme])
     end
     -- Potentially double-character tokens.
     -- In the case of single '=', there is no mapping for it so it is nil.
     if self:found_pattern("[=~<>]=?") then
-        return self:make_token(doublechars[self.m_data])
+        return self:make_token(doublechars[self.m_lexeme])
     end
     -- Still have non-whitespace stuff left in the rest string?
     local more = self:found_pattern("[%S]+")
