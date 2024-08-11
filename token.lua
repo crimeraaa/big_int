@@ -18,6 +18,28 @@ local Type = {
     Eof         = "<eof>",
 }
 
+---@param self   Token
+---@param tktype Token.Type
+---@param tkdata string
+local function set_token(self, tktype, tkdata)
+    self.type = tktype
+    if tktype == Type.Eof then
+        self.data = "<eof>"
+    else
+        self.data = tkdata or tktype
+    end
+end
+
+---@param self  Token
+---@param token Token
+local function copy_token(self, token)
+    self.type = token.type
+    self.data = token.data
+end
+
+---@type fun(inst: Class): boolean
+local is_token
+
 ---@class Token : Class
 ---@field type Token.Type
 ---@field data string
@@ -30,28 +52,16 @@ local Type = {
 ---@param tktype? Token.Type|Token
 ---@param tkdata? string
 Token = Class(function(self, tktype, tkdata)
-    self:set_token(tktype or Type.Eof, tkdata)
+    if is_token(tktype) then
+        copy_token(self, tktype)
+    else
+        set_token(self, tktype or Type.Eof, tkdata)
+    end
 end)
 
----@param tktype  Token|Token.Type
----@param tkdata? string
-function Token:set_token(tktype, tkdata)
-    -- Do a deep copy if applicable.
-    ---@type false|Token
-    local token = Token.is_instance(tktype) and tktype
-    if token then
-        self.type = token.type
-        self.data = token.data
-        return
-    end
-    ---@cast tktype Token.Type
-    self.type = tktype
-    if tktype == Type.Eof then
-        self.data = "<eof>"
-    else
-        self.data = tkdata or tktype
-    end
-end
+is_token         = Token.is_instance
+Token.set_token  = set_token
+Token.copy_token = copy_token
 
 Token.Type = Type
 

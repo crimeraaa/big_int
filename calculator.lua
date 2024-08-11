@@ -1,15 +1,4 @@
----Set the environment of the current running thread to throw when you read/write
----undeclared globals. Reading undeclared keys on `_G` itself though is fine.
----
----Stack level 0 is the current running thread.
----Stack level 1 is the caller of 'setfenv()'.
----
----@see https://www.lua.org/manual/5.1/manual.html#pdf-setfenv
-local strict = require "strict"
----@diagnostic disable-next-line: param-type-mismatch
-setfenv(0, strict(_G))
----@diagnostic disable-next-line: param-type-mismatch
-setfenv(1, strict(_G))
+require "strict".restrict(_G)
 
 local Token  = require "token"
 local Lexer  = require "lexer"
@@ -34,13 +23,12 @@ local lexer, parser = Lexer(), Parser()
 ---@param input string
 local function compile(input)
     lexer:set_input(input)
-    parser:reset()
+    parser:reset_tokens()
 
     -- Ensure lookahead token is something we can start with
     parser:update_lookahead(lexer)
-    while not parser:check_lookahead(Token.Type.Error, Token.Type.Eof) do
-        parser:parse_expression(lexer)
-    end
+    parser:parse_expression(lexer)
+    parser:expect_lookahead(lexer, Token.Type.Eof)
     printfln("RPN = %s", parser:serialize_equation())
     printfln("    = %s", parser:serialize_results())
 end

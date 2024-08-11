@@ -2,7 +2,8 @@ local Class = require "class"
 
 local BigInt
 
-local abs, floor = math.abs, math.floor
+---@type fun(inst: Class): boolean
+local is_bigint
 
 ---@class BigInt: Class
 ---@field m_digits   integer[] Stored in a little-endian fashion.
@@ -22,7 +23,7 @@ BigInt = Class(function(self, value)
     self.m_length   = 0
     self.m_capacity = 0
     self.m_negative = false
-    if BigInt.is_instance(value) then
+    if is_bigint(value) then
         self:set_bigint(value)
     elseif type(value) == "number" then
         self:set_integer(value)
@@ -32,6 +33,8 @@ BigInt = Class(function(self, value)
         self:set_integer(0)
     end
 end)
+
+is_bigint = BigInt.is_instance
 
 BigInt.BASE = 10
 
@@ -53,6 +56,8 @@ local function push_msd(self, digit)
     self:set_length(i)
     return true
 end
+
+local abs, floor = math.abs, math.floor
 
 ---@param value integer
 function BigInt:set_integer(value)

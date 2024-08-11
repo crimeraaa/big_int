@@ -39,11 +39,13 @@ Enum = Class(function(self, keys)
     end
 end)
 
+local is_enum_value = Enum.Value.is_instance
+
 function Enum:__index(key)
     local val ---@type Enum.Value|string|nil
     if type(key) == "string" or type(key) == "number" then
         val = self.m_enums[key]
-    elseif Enum.Value.is_instance(key) then
+    elseif is_enum_value(key) then
         val = self.m_names[key]
     end
     if not val then
@@ -84,7 +86,7 @@ end
 ---@param x Enum.Value|integer
 ---@param y Enum.Value|integer
 function Enum.Value.check_arithmetic(x, y)
-    if Enum.Value.is_instance(x) == Enum.Value.is_instance(y) then
+    if is_enum_value(x) == is_enum_value(y) then
         throw_error("add/subtract", x, y)
     end
     local x_num, y_num = tonumber(x), tonumber(y)
@@ -103,8 +105,7 @@ end
 ---@param x Enum.Value
 ---@param y Enum.Value
 function Enum.Value.check_comparison(x, y)
-    local is_inst = Enum.Value.is_instance
-    if is_inst(x) and is_inst(y) and x.m_parent == y.m_parent then
+    if is_enum_value(x) and is_enum_value(y) and x.m_parent == y.m_parent then
         return true
     end
     throw_error("compare", x, y)
