@@ -1,4 +1,4 @@
-local Class = require "class"
+local Class = require "src/lua/class"
 
 ---Think of this like `enum class` in C++.
 local Enum

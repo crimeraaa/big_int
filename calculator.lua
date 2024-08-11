@@ -1,8 +1,19 @@
-require "strict".restrict(_G)
+local getinfo = debug.getinfo
+local arg     = arg
+local dirsep  = package.config:sub(1, 1) ---@type '\\'|'/'
+local function get_scriptdir()
+    -- Trim the leading '@'
+    local path = arg and arg[0] or getinfo(2, 'S').source:sub(2)
+    return path:match("(.*[/\\])") or ('.' .. dirsep)
+end
 
-local Token  = require "token"
-local Lexer  = require "lexer"
-local Parser = require "parser"
+package.path = get_scriptdir().."?.lua;"..package.path
+
+require "src/lua/strict".restrict(_G)
+
+local Token  = require "src/lua/token"
+local Lexer  = require "src/lua/lexer"
+local Parser = require "src/lua/parser"
 
 local stdin, stdout = io.stdin, io.stdout
 
@@ -36,7 +47,9 @@ end
 printfln("To exit (Windows): Type <CTRL-Z> then hit <ENTER>.")
 printfln("To exit (Linux):   Type <CTRL-D>.")
 
-local PROGNAME = arg[0]
+---@type string
+local PROGNAME = arg[0]:match("%w+%.lua$")
+
 while true do
     printf("%s> ", PROGNAME)
     local input = stdin:read("*l")

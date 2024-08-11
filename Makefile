@@ -1,12 +1,13 @@
 # This directory should never be created by the makefile!
-DIR_SRC	:= src
+DIR_SRC	:= src/c
 DIR_OBJ	:= obj
 DIR_BIN	:= bin
 DIR_ALL	:= $(DIR_OBJ) $(DIR_BIN)
 
 IN_LIST	:= $(wildcard $(DIR_SRC)/*)
+IN_SRC  := $(filter %.c,$(IN_LIST))
 OUT_EXE	:= $(DIR_BIN)/main.exe
-OUT_OBJ	:= $(IN_LIST:$(DIR_SRC)/*.c=$(DIR_OBJ)/*.obj)
+OUT_OBJ	:= $(IN_SRC:$(DIR_SRC)/%.c=$(DIR_OBJ)/%.obj)
 OUT_ALL	:= $(OUT_EXE) $(OUT_OBJ)
 
 # CL.EXE flags that are indepdendent of C or C++.
@@ -51,6 +52,15 @@ all: debug
 debug: CC_FLAGS  += $(DEBUG_FLAGS)
 debug: CXX_FLAGS += $(DEBUG_FLAGS)
 debug: build
+	
+.PHONY: help
+help:
+	@echo DIR_SRC: $(DIR_SRC)
+	@echo DIR_OBJ: $(DIR_OBJ)
+	@echo DIR_BIN: $(DIR_BIN)
+	@echo IN_LIST: $(IN_LIST)
+	@echo OUT_EXE: $(OUT_EXE)
+	@echo OUT_OBJ: $(OUT_OBJ)
 	
 # --- RELEASE FLAGS ------------------------------------------------------------
 #

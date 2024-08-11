@@ -1,5 +1,5 @@
-local Class  = require "class"
-local Token  = require "token"
+local Class  = require "src/lua/class"
+local Token  = require "src/lua/token"
 local TkType = Token.Type
 
 ---@param self    Lexer

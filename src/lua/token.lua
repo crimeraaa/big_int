@@ -1,4 +1,4 @@
-local Class = require "class"
+local Class = require "src/lua/class"
 local Token
 
 ---@enum Token.Type
