@@ -3,11 +3,10 @@ package bigint
 import "core:strings"
 import "core:os"
 import "core:io"
-import "core:mem"
 
 // https://github.com/odin-lang/examples/blob/master/by_example/read_console_input/read_console_input.odin
 @(require_results)
-read_line :: proc(stream: io.Stream, allocator: mem.Allocator = context.allocator) -> (out: string, err: os.Error) {
+read_line :: proc(stream: io.Stream, allocator := context.allocator) -> (out: string, err: os.Error) {
     buffer: [512]byte
     builder := strings.builder_make(allocator) or_return
     defer strings.builder_destroy(&builder)

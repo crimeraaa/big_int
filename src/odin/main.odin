@@ -3,8 +3,7 @@ package bigint
 import "core:fmt"
 import "core:mem"
 import "core:os"
-import "core:unicode"
-import "core:testing"
+import "core:strconv"
 
 main :: proc() {
     // https://gist.github.com/karl-zylinski/4ccf438337123e7c8994df3b03604e33
@@ -28,85 +27,26 @@ main :: proc() {
             break
         }
         defer delete(input)
-        fmt.printfln("input: \"%s\"", input)
-        print_number(input)
-    }
-}
+        
+        bi: BigInt
+        bigint_init(&bi) or_break
+        defer bigint_destroy(&bi)
 
-@(test)
-run_tests :: proc(_: ^testing.T) {
-    print_number("1234")
-    print_number("1,234,567,890")
-    print_number("1_234_567_890")
-    
-    print_number("123457890A") // error, assumed base=10
-    print_number("0b1102")     // eror, detected base=2
-    print_number("0b1101")     // 13
-
-    print_number("0xfeedbeef")
-    print_number("0xc0ffee")
-    print_number("0xfeedbeefc0ffee")
-}
-
-print_number :: proc(input: string, base: int = 0) {
-    input, base  := input, base
-    if base == 0 {
-        prefix := string(input[:2] if len(input) > 2 else input[:])
-        switch _base, status := detect_base(prefix); status {
-        case .Prefix_None:
-            base = 10
-        case .Prefix_Valid:
-            input, base = input[2:], _base
-        case .Prefix_Invalid:
-            fmt.eprintfln("Unknown base prefix '%s'", prefix)
-            return
+        value, _ := strconv.parse_int(input)
+        bigint_set_integer(&bi, value) or_break
+        fmt.println("'parse_int()':")
+        bigint_print(bi)
+        fmt.println(bi)
+        // Unrecoverable error?
+        if err := bigint_set_string(&bi, input, minimize = true); err != nil {
+            if err != .Invalid_Digit {
+                break
+            }
         }
+        fmt.println("'bigint_set_string()':")
+        bigint_print(bi)
+        fmt.println(bi)
     }
-    value, exponent, place := 0, 0, 1
-    #reverse for character in input {
-        digit: int
-        defer {
-            value += digit * place
-            exponent += 1
-            place *= base
-        }
-        switch unicode.to_lower(character) {
-        case '0'..='9': digit = int(character - '0')
-        case 'a'..='f': digit = int(character - 'a') + 10
-        case:
-            continue
-        }
-        if !(0 <= digit && digit < base) {
-            fmt.eprintfln("Invalid base-%i digit '%c'", base, character)
-            return
-        }
-        fmt.printfln("% 2i * (%i ^ % -2i = %i)", digit, base, exponent, place)
-    }
-    fmt.printfln("base-%i to base-10: %v", base, value)
-}
-
-Detect_Base_Status :: enum {
-    Prefix_None = 0,
-    Prefix_Valid,
-    Prefix_Invalid,
-}
-
-detect_base :: proc(prefix: string) -> (base: int, status: Detect_Base_Status) {
-    base, status = 10, .Prefix_None
-    if len(prefix) < 2 {
-        return
-    }
-    if prefix[0] == '0' {
-        status = .Prefix_Valid
-        switch prefix[1] {
-        case 'b': base = 2
-        case 'o': base = 8
-        case 'd': base = 10
-        case 'x': base = 16
-        case: status = .Prefix_Invalid
-        }
-    }
-    return
 }
 
 @(private="file", disabled=!ODIN_DEBUG)

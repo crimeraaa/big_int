@@ -62,7 +62,7 @@ release: build
 .PHONY: build
 build: $(CC_OUT)
 
-$(CC_OUT): $(CC_ALL) | $(DIR_ALL)
+$(CC_OUT): $(CC_ALL)
 	$(CC) $(CC_FLAGS) $(filter %.c,$^)
 
 .PHONY: clean

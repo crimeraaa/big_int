@@ -6,10 +6,6 @@ ODIN_FLAGS := -vet
 # Expand only when referenced as $(TARGET) may update this.
 ODIN_CMDLINE = $(ODIN_DIR) $(ODIN_FLAGS) -out:"$(ODIN_OUT)"
 
-# These may be defined in the command-line invocation.
-TARGET = debug
-ACTION = build
-
 .PHONY: all
 all: $(TARGET)
 
@@ -27,11 +23,11 @@ debug release: $(ACTION)
 	
 # Must be run only when build needs updating.
 build: $(ODIN_OUT)
-$(ODIN_OUT): $(ODIN_SRC) | $(DIR_BIN)
+$(ODIN_OUT): $(ODIN_SRC)
 	odin build $(ODIN_CMDLINE)
 
 # Must be run regardless of the dependency graph.
-test run: $(ODIN_SRC) | $(DIR_BIN)
+test run: $(ODIN_SRC)
 	odin $@ $(ODIN_CMDLINE)
 
 # 1}}} -------------------------------------------------------------------------
