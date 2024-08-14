@@ -8,7 +8,7 @@ import "core:io"
 @(require_results)
 read_line :: proc(stream: io.Stream, allocator := context.allocator) -> (out: string, err: os.Error) {
     buffer: [512]byte
-    builder := strings.builder_make(allocator) or_return
+    builder := strings.builder_make(context.temp_allocator) or_return
     defer strings.builder_destroy(&builder)
     for {
         nread := io.read(stream, buffer[:]) or_return

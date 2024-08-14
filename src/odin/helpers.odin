@@ -10,9 +10,12 @@ Helper_Error :: enum {
     Invalid_Digit,
 }
 
-@(require_results)
-count_digits :: proc(value: $T, radix := int(10)) -> int {
+/*
+    Get the number of `radix` digits needed to represent `value`.
+ */
+count_digits :: proc(value: $T, #any_int radix := int(10)) -> int {
     #assert(intrinsics.type_is_integer(T))
+    // This is always the same no matter the base (except base 0).
     if value == 0 {
         return 1
     }
@@ -20,12 +23,11 @@ count_digits :: proc(value: $T, radix := int(10)) -> int {
     // We rely on the fact that integer division always truncates.
     for temp != 0 {
         count += 1
-        temp  /= T(radix)
+        temp  /= radix
     }
     return count
 }
 
-@(require_results)
 detect_radix :: proc(input: string) -> (rest: string, radix: int, err: Helper_Error) {
     radix, rest, err = 10, input, .None
     if len(input) < 2 {
@@ -46,7 +48,6 @@ detect_radix :: proc(input: string) -> (rest: string, radix: int, err: Helper_Er
     return
 }
 
-@(require_results)
 get_digit :: proc(character: rune, radix: int) -> (digit: int, err: Helper_Error) {
     err = .None
     switch character {
