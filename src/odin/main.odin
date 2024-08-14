@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:mem"
 import "core:os"
 import "core:io"
+import "core:testing"
 
 main :: proc() {
     // https://gist.github.com/karl-zylinski/4ccf438337123e7c8994df3b03604e33
@@ -24,11 +25,11 @@ main :: proc() {
     for {
         defer free_all(context.temp_allocator)
 
-        fmt.print("x: ")
+        fmt.print("Enter a value for 'x': ")
         first := try_read_line(stdin) or_break
         defer delete(first)
 
-        fmt.print("y: ")
+        fmt.print("Enter a value for 'y': ")
         second := try_read_line(stdin) or_break
         defer delete(second)
         
@@ -41,22 +42,68 @@ main :: proc() {
         dst := bigint_make(context.allocator) or_break
         defer bigint_destroy(&dst)
         
-        fmt.print("x: ")
-        bigint_print(x)
-
-        fmt.print("y: ")
-        bigint_print(y)
+        fmt.print("x, y := ")
+        bigint_print(&x, newline = false)
+        fmt.print(", ")
+        bigint_print(&y)
         
         bigint_add(&dst, &x, &y) or_break
         fmt.print("x + y = ")
-        bigint_print(dst)
+        bigint_print(&dst)
+        
+        bigint_sub(&dst, &x, &y) or_break
+        fmt.print("x - y = ")
+        bigint_print(&dst)
     }
+}
+
+@(test)
+arith_tests :: proc(test: ^testing.T) {
+    x, y, dst: BigInt
+    defer {
+        bigint_destroy(&x)
+        bigint_destroy(&y)
+        bigint_destroy(&dst)
+    }
+    bigint_init(&x)
+    bigint_init(&y)
+    bigint_init(&dst)
+    
+    /* 
+    Accounts for |x| < |y|:
+        1    +   2  and   1  -   2
+        1    + (-2) and   1  - (-2)
+        (-1) +   2  and  (-1) -   2
+        (-1) + (-2) and (-1) - (-2)
+     */
+    fmt.println("=== begin tests ===", flush = false)
+    for mulx := 1; mulx >= -1; mulx -= 2 {
+        for muly := 1; muly >= -1; muly -= 2 {
+            bigint_set_from_integer(&x, 1 * mulx)
+            bigint_set_from_integer(&y, 2 * muly)
+
+            bigint_add(&dst, &x, &y)
+            print_equation(&x, &y, &dst, '+')
+            
+            bigint_sub(&dst, &x, &y)
+            print_equation(&x, &y, &dst, '-')
+        }
+    }
+    fmt.println("=== end tests ===", flush = false)
+    fmt.println(flush = true)
+}
+
+print_equation :: proc(x, y, dst: ^BigInt, op: rune) {
+    xbuf, ybuf, zbuf: [64]byte
+    xstr, ystr := bigint_to_string(x, xbuf[:]), bigint_to_string(y, ybuf[:])
+    zstr := bigint_to_string(dst, zbuf[:])
+    fmt.printf("%s %c %s = %s\n", xstr, op, ystr, zstr, flush = false)
 }
 
 try_make_bigint :: proc(input: string, allocator := context.allocator) -> (self: BigInt, err: Error) {
     self = bigint_make(allocator) or_return
     bigint_set_from_string(&self, input) or_return
-    return self, nil
+    return self, .Okay
 }
 
 try_read_line :: proc(stream: io.Stream, allocator := context.allocator) -> (string, bool) {
@@ -70,7 +117,7 @@ try_read_line :: proc(stream: io.Stream, allocator := context.allocator) -> (str
     return input, ok
 }
 
-print_comparison :: proc(x, y: BigInt) {
+print_comparison :: proc(x, y: ^BigInt) {
     result := bigint_cmp(x, y)
     bigint_print(x, newline = false)
     fmt.printf(" is %s ", Comparison_String[result])

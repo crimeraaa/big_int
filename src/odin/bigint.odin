@@ -5,24 +5,26 @@ import "core:fmt"
 import "core:mem"
 
 /* 
-    `DIGIT_TYPE`:
-        Our internal representation of a single digit of specified `DIGIT_BASE`.
-
-    `WORD_TYPE`:
-        A type capable of holding the result of any arithmetic between any 2
-        `DIGIT_TYPE`s. That is, it should be able to hold the maximum absolute
-        value of addition, subtraction, and multiplication.
+`DIGIT_TYPE`:
+    Our internal representation of a single digit of specified `DIGIT_BASE`.
  */
 DIGIT_TYPE  :: distinct u8
 DIGIT_BASE  :: 10
 DIGIT_WIDTH :: 1
-WORD_TYPE   :: distinct u16
 
 #assert(DIGIT_BASE < max(DIGIT_TYPE), "DIGIT_BASE cannot fit in a DIGIT_TYPE")
 
-Error :: union {
-    Helper_Error,
-    mem.Allocator_Error,
+/* 
+Must be a strict superset of `runtime.Allocation_Error`.
+ */
+Error :: enum u8 {
+    Okay                 = 0,
+    Out_Of_Memory        = 1,    
+    Invalid_Pointer      = 2,
+    Invalid_Argument     = 3,
+    Mode_Not_Implemented = 4,
+    Invalid_Digit        = 5,
+    Invalid_Radix        = 6,
 }
 
 Sign :: enum i8 {
@@ -49,7 +51,11 @@ bigint_init_none :: proc(self: ^BigInt, allocator := context.allocator) -> Error
 
 bigint_init_cap :: proc(self: ^BigInt, capacity: int, allocator := context.allocator) -> Error {
     // make($T, len, allocator) -> mem.Allocator_Error
-    self.digits = make([dynamic]DIGIT_TYPE, capacity, allocator) or_return
+    memerr: mem.Allocator_Error
+    self.digits, memerr = make([dynamic]DIGIT_TYPE, capacity, allocator)
+    if memerr != .None {
+        return .Out_Of_Memory
+    }
     bigint_clear(self)
     return nil
 }
@@ -82,16 +88,50 @@ bigint_destroy :: proc(self: ^BigInt) {
 
 // 1}}} ------------------------------------------------------------------------
 
+// --- PUBLIC HELPERS ----------------------------------------------------- {{{1
+
 /*
 Ideally, if we are 0, then `self.active` should also be 0.
  */
-bigint_is_zero :: proc(self: BigInt) -> bool {
-    return self.active == 0 || (self.active == 1 && self.digits[0] == 0)
+bigint_is_zero :: #force_inline proc(self: ^BigInt) -> bool {
+    return self.active == 0
 }
 
-bigint_is_negative :: #force_inline proc(self: BigInt) -> bool {
+bigint_is_negative :: #force_inline proc(self: ^BigInt) -> bool {
     return self.sign == .Negative
 }
+
+bigint_to_string :: proc {
+    bigint_to_string_fixed,
+}
+
+/* 
+TODO: Probably do something better than this...
+ */
+bigint_to_string_fixed :: proc(self: ^BigInt, buf: []byte) -> string {
+    if bigint_is_zero(self) {
+        return fmt.bprint(buf, '0')
+    }
+    // Most significant digit should have no padding.
+    offset := 0
+    if first := self.digits[self.active - 1]; bigint_is_negative(self) {
+        fmt.bprintf(buf, "-%i", first)
+        offset = 2
+    } else {
+        fmt.bprint(buf, first)
+        offset = 1
+    }
+    #reverse for digit in self.digits[:self.active - 1] {
+        if offset >= len(buf) {
+            panic("buffer overflow")
+        }
+        tmp := fmt.bprintf(buf[offset:], "%*[0]i", DIGIT_WIDTH, digit)
+        offset += len(tmp)
+    }
+    return string(buf[:])
+}
+
+// 1}}} ------------------------------------------------------------------------
 
 // --- "SET" FUNCTIONS ---------------------------------------------------- {{{1
 
@@ -108,9 +148,12 @@ bigint_set_from_integer :: proc(self: ^BigInt, value: $T) -> Error {
         bigint_clear(self)
         return nil
     }
+    /* 
+    TODO: When DIGIT_BASE != 10, need a different algorithm to calculate size.
+     */
     ndigits := count_digits(value)
     
-    resize(&self.digits, ndigits) or_return
+    internal_resize(self, ndigits) or_return
     self.active = ndigits
     self.sign   = .Positive if value >= 0 else .Negative
     
@@ -121,7 +164,7 @@ bigint_set_from_integer :: proc(self: ^BigInt, value: $T) -> Error {
     rest := value
     is_maxneg := !intrinsics.type_is_unsigned(T) && rest == min(T)
     if is_maxneg {
-        rest += 1        
+        rest += 1
     }
     rest = rest if value >= 0 else -rest
     for index in 0..<ndigits {
@@ -176,7 +219,7 @@ bigint_set_from_string :: proc(self: ^BigInt, input: string, minimize := false) 
     }
     
     // `ndigits` may be overkill if there are delimeters.
-    resize(&self.digits, ndigits) or_return
+    internal_resize(self, ndigits) or_return
     self.active = 0
     self.sign   = sign
     
@@ -194,7 +237,7 @@ bigint_set_from_string :: proc(self: ^BigInt, input: string, minimize := false) 
             return .Invalid_Digit
         }
     }
-    bigint_trim(self, minimize) or_return
+    bigint_trim(self, minimize)
     return nil
 }
 
@@ -203,7 +246,7 @@ bigint_set_from_string :: proc(self: ^BigInt, input: string, minimize := false) 
 /* 
 Trim leading zeroes so that `bigint_print` slices the correct amount.
  */
-bigint_trim :: proc(self: ^BigInt, minimize := false) -> mem.Allocator_Error {
+bigint_trim :: proc(self: ^BigInt, minimize := false) -> Error {
     count := 0
     #reverse for digit in self.digits[:self.active] {
         if digit == 0 {
@@ -212,16 +255,14 @@ bigint_trim :: proc(self: ^BigInt, minimize := false) -> mem.Allocator_Error {
             break
         }
     }
+    // We turned into zero?
     if self.active -= count; self.active == 0 {
         self.sign = .Positive
     }
-    if minimize {
-        resize(&self.digits, self.active) or_return
-    }
-    return .None
+    return internal_resize(self, self.active) if minimize else nil
 }
 
-bigint_print :: proc(self: BigInt, newline := true) {
+bigint_print :: proc(self: ^BigInt, newline := true) {
     if bigint_is_negative(self) {
         fmt.print('-')
     }
@@ -255,7 +296,7 @@ Comparison_String := [Comparison]string {
 }
 
 @(require_results)
-bigint_cmp :: proc(x, y: BigInt) -> Comparison {
+bigint_cmp :: proc(x, y: ^BigInt) -> Comparison {
     x_is_negative := bigint_is_negative(x)
 
     /* 
@@ -281,38 +322,105 @@ bigint_cmp :: proc(x, y: BigInt) -> Comparison {
     At this point we know both `x` and `y` have the same sign and the same
     number of active digits. Note: 213 < 214 but -213 < -214.
      */
-    for xvalue, xindex in x.digits[:x.active] {
-        if xvalue > y.digits[xindex] {
-            return .Less if x_is_negative else .Greater
+    for xdigit, xindex in x.digits[:x.active] {
+        ydigit := y.digits[xindex]
+        if xdigit != ydigit {
+            if xdigit < ydigit {
+                return .Greater if x_is_negative else .Less
+            } else {
+                return .Less if x_is_negative else .Greater
+            }
         }
     }
     return .Equal
 }
 
-bigint_eq :: proc(x, y: BigInt) -> bool {
+bigint_eq :: proc(x, y: ^BigInt) -> bool {
     return bigint_cmp(x, y) == .Equal
 }
 
-bigint_lt :: proc(x, y: BigInt) -> bool {
+bigint_lt :: proc(x, y: ^BigInt) -> bool {
     return bigint_cmp(x, y) == .Less
 }
 
-bigint_gt :: proc(x, y: BigInt) -> bool {
+bigint_gt :: proc(x, y: ^BigInt) -> bool {
     return bigint_cmp(x, y) == .Greater
 }
 
-bigint_neq :: proc(x, y: BigInt) -> bool {
+bigint_neq :: proc(x, y: ^BigInt) -> bool {
     return !bigint_eq(x, y)
 }
 
-bigint_le :: proc(x, y: BigInt) -> bool {
-    result := bigint_cmp(x, y)
-    return result == .Equal || result == .Less
+/* 
+    x <= y == !(x > y)
+ */
+bigint_leq :: proc(x, y: ^BigInt) -> bool {
+    return !bigint_gt(x, y)
 }
 
-bigint_ge :: proc(x, y: BigInt) -> bool {
-    result := bigint_cmp(x, y)
-    return result == .Equal || result == .Greater
+/* 
+    x >= y == !(x < y)
+ */
+bigint_geq :: proc(x, y: ^BigInt) -> bool {
+    return !bigint_lt(x, y)
+}
+
+/* 
+Compare the digit arrays without considering sign.
+ */
+bigint_cmp_abs :: proc(x, y: ^BigInt) -> Comparison {
+    if x.active != y.active {
+        return .Less if x.active < y.active else .Greater
+    }
+    for xdigit, xindex in x.digits[:x.active] {
+        ydigit := y.digits[xindex]
+        if xdigit != ydigit {
+            return .Less if xdigit < ydigit else .Greater
+        }
+    }
+    return .Equal
+}
+
+/* 
+    |x| == |y|
+ */
+bigint_eq_abs :: proc(x, y: ^BigInt) -> bool {
+    return bigint_cmp_abs(x, y) == .Equal
+}
+
+/* 
+    |x| < |y|
+ */
+bigint_lt_abs :: proc(x, y: ^BigInt) -> bool {
+    return bigint_cmp_abs(x, y) == .Less
+}
+
+/*  
+    |x| > |y|
+ */
+bigint_gt_abs :: proc(x, y: ^BigInt) -> bool {
+    return bigint_cmp_abs(x, y) == .Greater
+}
+
+/* 
+    |x| != |y| == !(|x| == |y|)
+ */
+bigint_neq_abs :: proc(x, y: ^BigInt) -> bool {
+    return !bigint_eq_abs(x, y)
+}
+
+/* 
+    |x| <= |y| == !(|x| > |y|)
+ */
+bigint_leq_abs :: proc(x, y: ^BigInt) -> bool {
+    return !bigint_gt_abs(x, y)
+}
+
+/* 
+    |x| >= |y| == !(|x| < |y|)
+ */
+bigint_geq_abs :: proc(x, y: ^BigInt) -> bool {
+    return !bigint_lt_abs(x, y)
 }
 
 // 1}}} ------------------------------------------------------------------------
@@ -324,89 +432,104 @@ bigint_abs :: proc(self: ^BigInt) {
 }
 
 bigint_neg :: proc(self: ^BigInt) {
+    if bigint_is_zero(self) {
+        return
+    }
     self.sign = .Positive if self.sign == .Negative else .Negative
 }
 
 /* 
+High-level integer addition.
+
 Some key assumptions:
 
     1. x    +   y  ==   x + y
     2. (-x) + (-y) == -(x + y)
-    3. (-x) +   y  ==   y - x
+    3. (-x) +   y  ==   y - x  or  -(x - y)
     4. x    + (-y) ==   x - y
-    
-TODO: Handle when `x` and/or `y` are the same pointer as `dst`.
  */
-bigint_add :: proc(dst, x, y: ^BigInt, minimize := false) -> mem.Allocator_Error {
+bigint_add :: proc(dst, x, y: ^BigInt) -> Error {
     x, y := x, y
-    x_is_negative := bigint_is_negative(x^)
-    if x.sign != y.sign {
-        // Ensure `x` is the positive one and `y` is the negative one.
-        if x_is_negative {
-            x, y = y, x
-        }
-        // Ensure caller doesn't see net changes to non-destination parameters.
-        defer bigint_neg(y)
-        bigint_abs(y)
-        return bigint_sub(dst, x, y, minimize)
-    }
 
+    // Addition between 2 digits of the same base results in, at most, +1 digit.
     nlen := max(x.active, y.active) + 1
-
-    resize(&dst.digits, nlen) or_return
+    internal_resize(dst, nlen) or_return
     mem.zero_slice(dst.digits[:])
     dst.active = nlen
-    dst.sign   = .Negative if x_is_negative else .Positive
+    dst.sign   = x.sign
 
-    carry := DIGIT_TYPE(0)
-    for index in 0..<nlen {
-        sum := carry
-        if index < x.active {
-            sum += x.digits[index]
+    /* 
+    Assumptions 3 and 4.
+    
+    Since `dst.sign` is the same as `x.sign`, we may need to negate it.
+
+    Account for:
+        |x| < |y|:   1  + (-2) = -(2 - 1) = -1
+        |x| < |y|: (-1) +   2  =  (2 - 1) =  1
+        |x| > |y|:   2  + (-1) =  (2 - 1) =  1
+        |x| > |y|: (-2) +   1  = -(2 - 1) = -1
+     */
+    if x.sign != y.sign {
+        if bigint_lt_abs(x, y) {
+            bigint_neg(dst)
+            x, y = y, x
         }
-        if index < y.active {
-            sum += y.digits[index]
-        }
-        if sum >= DIGIT_BASE {
-            carry = 1
-            sum  -= DIGIT_BASE
-        } else {
-            carry = 0
-        }
-        dst.digits[index] = sum
+        return internal_sub_unsigned(dst, x, y)
     }
-
-    bigint_trim(dst, minimize)
-    return .None
+    return internal_add_unsigned(dst, x, y)
 }
 
 /* 
+High-level integer subtraction.
+
 Some key assumptions:
 
     1.   x  -   y  ==   x - y
-    2. (-x) - (-y) ==   y - x
+    2. (-x) - (-y) ==   y - x  or -(x - y)
     3. (-x) -   y  == -(x + y)
     4.   x  - (-y) ==   x + y
-
-TODO: Handle when `x` and/or `y` are the same pointer as `dst`.
  */
-bigint_sub :: proc(dst, x, y: ^BigInt, minimize := false) -> mem.Allocator_Error {
+bigint_sub :: proc(dst, x, y: ^BigInt) -> Error {
     x, y := x, y
-    x_is_negative, y_is_negative := bigint_is_negative(x^), bigint_is_negative(y^)
-    if x_is_negative != y_is_negative {
-        defer if x_is_negative {
-            bigint_neg(dst)
-        }
-        // Ensure `x` is the positive one and `y` is the negative one.
-        if x_is_negative {
-            x, y = y, x
-        }
-        // Ensure caller doesn't see net changes to non-destination parameters.
-        defer bigint_neg(y)
-        bigint_abs(y)
-        return bigint_add(dst, x, y, minimize)
+
+    // No need for +1 since subtraction should never result in an extra digit.
+    nlen := max(x.active, y.active)
+    internal_resize(dst, nlen) or_return
+    dst.active = nlen
+    dst.sign   = x.sign
+
+    /* 
+    Assumptions 3 and 4.
+    
+    Since `dst.sign` is the same as `x.sign`, we're in the right state already.
+
+    Accounts for:
+        |x| < |y|:    1  - (-2) =  (1 + 2) =  3
+        |x| < |y|:  (-1) -   2  = -(1 + 2) = -3
+        |x| > |y|:    2  - (-1) =  (2 + 1) =  3
+        |x| > |y|:  (-2) -   1  = -(2 + 1) = -3
+     */
+    if x.sign != y.sign {
+        return internal_add_unsigned(dst, x, y)
     }
-    return .None
+    
+    /* 
+    Assumptions 1 and 2.
+    
+    Since `dst.sign` is the same as `x.sign`, we may need to negate it.
+
+    Accounts for:
+        |x| < |y|:   1  -   2  = -(2 - 1) = -1
+        |x| < |y|: (-1) - (-2) =  (2 - 1) =  1
+        |x| > |y|:   2  -   1  =  (2 - 1) =  1
+        |x| > |y|: (-2) - (-1) = -(2 - 1) = -1
+     */
+    if bigint_lt_abs(x, y) {
+        bigint_neg(dst)
+        x, y = y, x
+    }
+
+    return internal_sub_unsigned(dst, x, y)
 }
 
 // 1}}} ------------------------------------------------------------------------
