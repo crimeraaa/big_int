@@ -19,10 +19,10 @@ Determining the correct order of operands and signedness of the result is the
 responsibility of the caller.
  */
 internal_add_unsigned :: proc(dst, x, y: ^BigInt, minimize := false) -> Error {
-    carry := false
+    carry := DIGIT_TYPE(0)
     // Iterate from least significant to most significant.
     for index in 0..<dst.active {
-        sum := DIGIT_TYPE(1 if carry else 0)
+        sum := carry
         
         // If index is out of range, it is implicitly 0 (i.e. add nothing).
         if index < x.active {
@@ -33,12 +33,39 @@ internal_add_unsigned :: proc(dst, x, y: ^BigInt, minimize := false) -> Error {
         }
         // Need to carry?
         if sum >= DIGIT_BASE {
-            carry = true
+            carry = 1
             sum  -= DIGIT_BASE
         } else {
-            carry = false
+            carry = 0
         }
         dst.digits[index] = sum
+    }
+    return bigint_trim(dst, minimize)
+}
+
+/* 
+Set `dst` to be `x + digit`.
+
+TODO: Handle signedness of `x`?
+ */
+internal_add_digit :: proc(dst, x: ^BigInt, digit: DIGIT_TYPE, minimize := false) -> Error {
+    internal_resize(dst, x.active + 1) or_return
+    carry := digit
+    for index in 0..<x.active {
+        sum := x.digits[index] + carry
+        /* 
+        TODO: `carry` will likely break when DIGIT_BASE != 10
+         */
+        if sum >= DIGIT_BASE {
+            sum  -= DIGIT_BASE
+            carry = 1
+        } else {
+            carry = 0
+        }
+        dst.digits[index] = sum
+        if carry == 0 {
+            break
+        }
     }
     return bigint_trim(dst, minimize)
 }

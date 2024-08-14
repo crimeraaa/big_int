@@ -8,11 +8,12 @@ import "core:mem"
 `DIGIT_TYPE`:
     Our internal representation of a single digit of specified `DIGIT_BASE`.
  */
-DIGIT_TYPE  :: distinct u8
-DIGIT_BASE  :: 10
-DIGIT_WIDTH :: 1
+DIGIT_TYPE  :: distinct u32
+DIGIT_BASE  :: 1_000_000_000
+DIGIT_MAX   :: 2 * (DIGIT_BASE - 1)
+DIGIT_WIDTH :: 9
 
-#assert(DIGIT_BASE < max(DIGIT_TYPE), "DIGIT_BASE cannot fit in a DIGIT_TYPE")
+#assert(DIGIT_BASE < max(DIGIT_TYPE))
 
 /* 
 Must be a strict superset of `runtime.Allocation_Error`.
@@ -33,7 +34,7 @@ Sign :: enum i8 {
 }
 
 BigInt :: struct {
-    digits: [dynamic]DIGIT_TYPE, // each digit is in the range 0..=9
+    digits: [dynamic]DIGIT_TYPE, // each digit is in the range 0..<10^DIGIT_WIDTH
     active: int, // Independent of `len(digits)`.
     sign:   Sign,
 }
@@ -142,16 +143,12 @@ bigint_set :: proc {
 
 bigint_set_zero :: bigint_clear
 
-bigint_set_from_integer :: proc(self: ^BigInt, value: $T) -> Error {
-    #assert(intrinsics.type_is_integer(T))
+bigint_set_from_integer :: proc(self: ^BigInt, #any_int value: int) -> Error {
     if value == 0 {
         bigint_clear(self)
         return nil
     }
-    /* 
-    TODO: When DIGIT_BASE != 10, need a different algorithm to calculate size.
-     */
-    ndigits := count_digits(value)
+    ndigits := count_digits(value, DIGIT_BASE)
     
     internal_resize(self, ndigits) or_return
     self.active = ndigits
@@ -160,9 +157,10 @@ bigint_set_from_integer :: proc(self: ^BigInt, value: $T) -> Error {
     /* 
     Will getting the absolute value cause `rest` to overflow?
     e.g. -(i8(-128)) will result in 0 because +128 does not fit in an i8.
+    So we add 1 to get -127 of which +127 does fit in an i8.
     */
     rest := value
-    is_maxneg := !intrinsics.type_is_unsigned(T) && rest == min(T)
+    is_maxneg := rest == min(int)
     if is_maxneg {
         rest += 1
     }
@@ -171,73 +169,114 @@ bigint_set_from_integer :: proc(self: ^BigInt, value: $T) -> Error {
         self.digits[index] = DIGIT_TYPE(rest % DIGIT_BASE)
         rest /= DIGIT_BASE
     }
-    /* 
-        TODO: Add 1 again when is_maxneg
-     */
-    return nil
+    /*
+    TODO: Implement in terms of sub, not add.
+    */
+    return internal_add_digit(self, self, 1) if is_maxneg else nil
+}
+
+@(private, require_results)
+count_only_numeric_characters :: proc(input: string, radix := 10) -> int {
+    count := 0
+    for char in input {
+        _, err := get_digit(char, radix)
+        if err == nil {
+            count += 1
+        }
+    }
+    return count
 }
 
 /* 
 Assumes `input` represents a base-10 number, for simplicity.
  */
-bigint_set_from_string :: proc(self: ^BigInt, input: string, minimize := false) -> Error {
-    input   := input
-    ndigits := len(input)
-
+bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Error {
+    input  := input
+    radix  := radix
+    nchars := len(input)
+    
     sign := Sign.Positive
-    for 1 <= len(input) && input[0] == '-' {
-        input = input[1:]
-        sign  = .Negative if sign == .Positive else .Positive
-        ndigits -= 1
-    }
-    
-    // Account for base prefix
-    if 2 < len(input) && input[0] == '0' {
-        switch input[1] {
-        case 'd':
-            input = input[2:]
-            ndigits -= 2
-        case 'b', 'o', 'x':
-            fmt.eprintln("Non-base-10 prefixes not yet supported")
-            return .Invalid_Radix
+    prefix_loop: for nchars > 1 {
+        switch input[0] {
+        case '-': sign = .Negative if sign == .Positive else .Positive
+        case '+': sign = .Positive
+        case '0':
+            if radix == 0 && nchars > 2 && input[1] != '0' {
+                switch input[1] {
+                case 'b', 'B': radix = 2
+                case 'o', 'O': radix = 8
+                case 'd', 'D': radix = 10
+                case 'x', 'X': radix = 16
+                case:
+                    break prefix_loop
+                }
+                input = input[1:]
+                nchars -= 1
+            }
         case:
+            break prefix_loop
         }
-    }
-    
-    // Skip leading zeroes in the string
-    for 1 <= len(input) && input[0] == '0' {
         input = input[1:]
-        ndigits -= 1
+        nchars -= 1
     }
-
-    /* 
-        TODO: Fix returning 0 when strings like "-----" are entered?
-     */
-    if ndigits == 0 {
-        bigint_clear(self)
+    if radix == 0 {
+        radix = 10
+    }
+    if nchars == 0 {
+        bigint_set_zero(self)
         return nil
     }
     
-    // `ndigits` may be overkill if there are delimeters.
-    internal_resize(self, ndigits) or_return
-    self.active = 0
+    /* 
+    e.g. "123456789780" has 12 characters, which is 12 base-10 characters.
+    However, for base 10^9 we need to divide the length by 9.
+    
+    Note:
+        digits[0] := 456789780  (10^9)^0 place
+        digits[1] := 123        (10^9)^1 place
+     */
+    ndigits := count_only_numeric_characters(input, radix)
+    nblocks := ndigits / DIGIT_WIDTH
+    nextra  := ndigits % DIGIT_WIDTH
+    if nextra != 0 {
+        nblocks += 1
+    }
+    internal_resize(self, nblocks) or_return
+    self.active = nblocks
     self.sign   = sign
     
-    // Right (least significant) to left (most significant)
-    #reverse for char in input {
-        switch char {
-        case '0'..='9':
-            // TODO: Adjust for when `DIGIT_BASE`>10
-            self.digits[self.active] = DIGIT_TYPE(char - '0')
-            self.active += 1
-        case ' ', '_', ',':
+    // Counters for base 10^9
+    current_digit := DIGIT_TYPE(0)
+    current_block := nblocks - 1
+    block_index   := int(nextra if nextra > 0 else DIGIT_WIDTH)
+    
+    /* 
+    TODO: Properly "slice" binary, octal and hexadecimal strings.
+    e.g: printing out the raw slice of `0xffff_ffff` vs `4,294,967,295` gives us
+    different results.
+     */
+    for char in input {
+        if char == ' ' || char == '_' || char == ',' {
             continue
-        case:
-            fmt.eprintfln("Unknown base-10 digit '%c'", char)
-            return .Invalid_Digit
+        }
+        digit, err := get_digit(char, radix)
+        if err != nil {
+            fmt.eprintfln("Invalid base-%i digit '%c'", radix, char)
+            bigint_destroy(self)
+            return err
+        }
+        current_digit *= DIGIT_TYPE(radix)
+        current_digit += DIGIT_TYPE(digit)
+        block_index -= 1
+        
+        // At end of block, so set in array and prepare to write new block
+        if block_index == 0 {
+            self.digits[current_block] = current_digit
+            current_block -= 1
+            current_digit = 0
+            block_index = DIGIT_WIDTH
         }
     }
-    bigint_trim(self, minimize)
     return nil
 }
 
@@ -263,18 +302,24 @@ bigint_trim :: proc(self: ^BigInt, minimize := false) -> Error {
 }
 
 bigint_print :: proc(self: ^BigInt, newline := true) {
-    if bigint_is_negative(self) {
-        fmt.print('-')
+    if bigint_is_zero(self) {
+        fmt.print('0')
+        if newline {
+            fmt.println()
+        }
+        return
     }
-
-    // Print only the active digits as otherwise we'll print all allocated.
-    #reverse for digit in self.digits[:self.active] {
+    // Most significant digit should have no padding.
+    if first := self.digits[self.active - 1]; bigint_is_negative(self) {
+        fmt.print('-', first, sep = "")
+    } else {
+        fmt.print(first)
+    }
+    digits := self.digits[:self.active - 1]
+    #reverse for digit in digits {
         // "%*spec" doesn't work anymore, need to do "%*[vararg-index]spec"
         // https://github.com/odin-lang/Odin/issues/3605#issuecomment-2143625629
         fmt.printf("%*[0]i", DIGIT_WIDTH, digit)
-    }
-    if bigint_is_zero(self) {
-        fmt.print('0')
     }
     if newline {
         fmt.println()
@@ -335,33 +380,36 @@ bigint_cmp :: proc(x, y: ^BigInt) -> Comparison {
     return .Equal
 }
 
-bigint_eq :: proc(x, y: ^BigInt) -> bool {
+bigint_eq :: #force_inline proc(x, y: ^BigInt) -> bool {
     return bigint_cmp(x, y) == .Equal
 }
 
-bigint_lt :: proc(x, y: ^BigInt) -> bool {
+bigint_lt :: #force_inline proc(x, y: ^BigInt) -> bool {
     return bigint_cmp(x, y) == .Less
 }
 
-bigint_gt :: proc(x, y: ^BigInt) -> bool {
+bigint_gt :: #force_inline proc(x, y: ^BigInt) -> bool {
     return bigint_cmp(x, y) == .Greater
 }
 
-bigint_neq :: proc(x, y: ^BigInt) -> bool {
+/* 
+    x != y == !(x == y)
+ */
+bigint_neq :: #force_inline proc(x, y: ^BigInt) -> bool {
     return !bigint_eq(x, y)
 }
 
 /* 
     x <= y == !(x > y)
  */
-bigint_leq :: proc(x, y: ^BigInt) -> bool {
+bigint_leq :: #force_inline proc(x, y: ^BigInt) -> bool {
     return !bigint_gt(x, y)
 }
 
 /* 
     x >= y == !(x < y)
  */
-bigint_geq :: proc(x, y: ^BigInt) -> bool {
+bigint_geq :: #force_inline proc(x, y: ^BigInt) -> bool {
     return !bigint_lt(x, y)
 }
 
@@ -384,42 +432,42 @@ bigint_cmp_abs :: proc(x, y: ^BigInt) -> Comparison {
 /* 
     |x| == |y|
  */
-bigint_eq_abs :: proc(x, y: ^BigInt) -> bool {
+bigint_eq_abs :: #force_inline proc(x, y: ^BigInt) -> bool {
     return bigint_cmp_abs(x, y) == .Equal
 }
 
 /* 
     |x| < |y|
  */
-bigint_lt_abs :: proc(x, y: ^BigInt) -> bool {
+bigint_lt_abs :: #force_inline proc(x, y: ^BigInt) -> bool {
     return bigint_cmp_abs(x, y) == .Less
 }
 
 /*  
     |x| > |y|
  */
-bigint_gt_abs :: proc(x, y: ^BigInt) -> bool {
+bigint_gt_abs :: #force_inline proc(x, y: ^BigInt) -> bool {
     return bigint_cmp_abs(x, y) == .Greater
 }
 
 /* 
     |x| != |y| == !(|x| == |y|)
  */
-bigint_neq_abs :: proc(x, y: ^BigInt) -> bool {
+bigint_neq_abs :: #force_inline proc(x, y: ^BigInt) -> bool {
     return !bigint_eq_abs(x, y)
 }
 
 /* 
     |x| <= |y| == !(|x| > |y|)
  */
-bigint_leq_abs :: proc(x, y: ^BigInt) -> bool {
+bigint_leq_abs :: #force_inline proc(x, y: ^BigInt) -> bool {
     return !bigint_gt_abs(x, y)
 }
 
 /* 
     |x| >= |y| == !(|x| < |y|)
  */
-bigint_geq_abs :: proc(x, y: ^BigInt) -> bool {
+bigint_geq_abs :: #force_inline proc(x, y: ^BigInt) -> bool {
     return !bigint_lt_abs(x, y)
 }
 
@@ -427,7 +475,7 @@ bigint_geq_abs :: proc(x, y: ^BigInt) -> bool {
 
 // --- ARITHMETIC --------------------------------------------------------- {{{1
 
-bigint_abs :: proc(self: ^BigInt) {
+bigint_abs :: #force_inline proc(self: ^BigInt) {
     self.sign = .Positive    
 }
 

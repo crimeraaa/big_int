@@ -18,29 +18,30 @@ main :: proc() {
         }
     }
     stdin := os.stream_from_handle(os.stdin)
-    zero, _ := bigint_make()
-    defer bigint_destroy(&zero)
-
-    bigint_set_zero(&zero)
     for {
         defer free_all(context.temp_allocator)
 
+        first, second: string
+        defer {
+            delete(second)
+            delete(first)
+        }
         fmt.print("Enter a value for 'x': ")
-        first := try_read_line(stdin) or_break
-        defer delete(first)
-
+        first = try_read_line(stdin) or_break
         fmt.print("Enter a value for 'y': ")
-        second := try_read_line(stdin) or_break
-        defer delete(second)
+        second = try_read_line(stdin) or_break
         
-        x := try_make_bigint(first) or_break
-        defer bigint_destroy(&x)
-
-        y := try_make_bigint(second) or_break
-        defer bigint_destroy(&y)
+        x, y, dst: BigInt
+        defer {
+            bigint_destroy(&dst)
+            bigint_destroy(&y)
+            bigint_destroy(&x)
+        }
+        x   = try_make_bigint(first) or_break
+        y   = try_make_bigint(second) or_break
+        dst = bigint_make(context.allocator) or_break
         
-        dst := bigint_make(context.allocator) or_break
-        defer bigint_destroy(&dst)
+        fmt.println(x.digits, y.digits)
         
         fmt.print("x, y := ")
         bigint_print(&x, newline = false)
@@ -93,6 +94,22 @@ arith_tests :: proc(test: ^testing.T) {
     fmt.println(flush = true)
 }
 
+@(test)
+set_tests :: proc(_: ^testing.T) {
+    x: BigInt
+    
+    fmt.println("=== begin test ===", flush = false)
+    bigint_init(&x)
+    defer bigint_destroy(&x)
+    
+    bigint_set_from_integer(&x, min(u8))
+
+    buf: [64]byte
+    fmt.printfln("x := %s", bigint_to_string(&x, buf[:]), flush = false)
+    
+    fmt.println("=== end test ===", flush = true)
+}
+
 print_equation :: proc(x, y, dst: ^BigInt, op: rune) {
     xbuf, ybuf, zbuf: [64]byte
     xstr, ystr := bigint_to_string(x, xbuf[:]), bigint_to_string(y, ybuf[:])
@@ -102,7 +119,7 @@ print_equation :: proc(x, y, dst: ^BigInt, op: rune) {
 
 try_make_bigint :: proc(input: string, allocator := context.allocator) -> (self: BigInt, err: Error) {
     self = bigint_make(allocator) or_return
-    bigint_set_from_string(&self, input) or_return
+    bigint_set_from_string(&self, input, radix = 0) or_return
     return self, .Okay
 }
 
@@ -128,7 +145,7 @@ print_comparison :: proc(x, y: ^BigInt) {
 print_number :: proc(input: string, radix := int(0)) {
     input, radix := input, radix
     if radix == 0 {
-        err: Helper_Error
+        err: Error
         prefix := string(input[:2]) if len(input) > 2 else input
         input, radix, err = detect_radix(input)
         if err == .Invalid_Radix {
