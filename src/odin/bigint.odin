@@ -2,7 +2,9 @@ package bigint
 
 import "base:intrinsics"
 import "core:fmt"
+import "core:log"
 import "core:mem"
+import "core:strings"
 import "core:unicode"
 
 /* 
@@ -44,6 +46,8 @@ DIGIT_WIDTH_HEX :: 8
 
 /* 
 Must be a strict superset of `runtime.Allocation_Error`.
+
+See: https://pkg.odin-lang.org/base/runtime/#Allocator_Error
  */
 Error :: enum u8 {
     Okay                 = 0,
@@ -69,13 +73,12 @@ BigInt :: struct {
 // --- INITIALIZATION FUNCTIONS ------------------------------------------- {{{1
 
 bigint_init :: proc(self: ^BigInt, capacity := 0, allocator := context.allocator) -> Error {
-    context.allocator = allocator
     // make($T, len, allocator) -> mem.Allocator_Error
     if capacity != 0 {
         memerr: mem.Allocator_Error
-        self.digits, memerr = make([dynamic]DIGIT_TYPE, capacity)
+        self.digits, memerr = make([dynamic]DIGIT_TYPE, capacity, allocator)
         if memerr != .None {
-            return .Out_Of_Memory
+            return Error(memerr)
         }
     }
     bigint_clear(self)
@@ -86,17 +89,15 @@ bigint_init :: proc(self: ^BigInt, capacity := 0, allocator := context.allocator
 Allocate several `BigInt` with `capacity` digits, all at once.
  */
 bigint_init_multi :: proc(args: ..^BigInt, capacity := 0, allocator := context.allocator) -> Error {
-    context.allocator = allocator
     for arg in args {
-        bigint_init(arg, capacity) or_return
+        bigint_init(arg, capacity, allocator) or_return
     }
     return nil
 }
 
 bigint_make :: proc(capacity := 0, allocator := context.allocator) -> (BigInt, Error) {
-    context.allocator = allocator
     self: BigInt
-    err := bigint_init(&self, capacity)
+    err := bigint_init(&self, capacity, allocator)
     return self, err
 }
 
@@ -131,35 +132,36 @@ bigint_is_negative :: #force_inline proc(self: BigInt) -> bool {
     return self.sign == .Negative
 }
 
-bigint_to_string :: proc {
-    bigint_to_string_fixed,
+/* 
+Since `strings.Builder` just wraps `[dynamic]u8`, we can leave freeing it to
+be the caller's responsibility.
+ */
+bigint_to_string :: proc(self: BigInt, allocator := context.allocator) -> (out: string, err: Error) {
+    context.allocator = allocator
+    builder, memerr := strings.builder_make_len(self.active * DIGIT_WIDTH)
+    if memerr != nil {
+        return "", Error(memerr)
+    }
+    
+    if bigint_is_zero(self) {
+        fmt.sbprint(&builder, '0')
+    } else {
+        // Most significant digit should have no padding.
+        if first := self.digits[self.active - 1]; bigint_is_negative(self) {
+            fmt.sbprintf(&builder, "-%i", first)
+        } else {
+            fmt.sbprint(&builder, first)
+        }        
+        digits := self.digits[:self.active - 1]
+        #reverse for digit in digits {
+            // "%*spec" doesn't work anymore, need to do "%*[vararg-index]spec"
+            // https://github.com/odin-lang/Odin/issues/3605#issuecomment-2143625629
+            fmt.sbprintf(&builder, "%*[0]i", DIGIT_WIDTH, digit)
+        }
+    }
+    return strings.to_string(builder), nil
 }
 
-/* 
-TODO: Probably do something better than this...
- */
-bigint_to_string_fixed :: proc(self: BigInt, buf: []byte) -> string {
-    if bigint_is_zero(self) {
-        return fmt.bprint(buf, '0')
-    }
-    // Most significant digit should have no padding.
-    next := buf[:]
-    if first := self.digits[self.active - 1]; bigint_is_negative(self) {
-        fmt.bprintf(next, "-%i", first)
-        next = next[2:]
-    } else {
-        fmt.bprint(next, first)
-        next = next[1:]
-    }
-    #reverse for digit, index in self.digits[:self.active - 1] {
-        if index >= len(buf) {
-            panic("buffer overflow")
-        }
-        tmp := fmt.bprintf(next, "%*[0]i", DIGIT_WIDTH, digit)
-        next = next[len(tmp):]
-    }
-    return string(buf[:])
-}
 
 // 1}}} ------------------------------------------------------------------------
 
@@ -172,14 +174,13 @@ bigint_set :: proc {
 
 bigint_set_zero :: bigint_clear
 
-bigint_set_from_integer :: proc(self: ^BigInt, #any_int value: int, allocator := context.allocator) -> Error {
+bigint_set_from_integer :: proc(self: ^BigInt, value: int) -> Error {
     if value == 0 {
         bigint_clear(self)
         return nil
     }
     ndigits := count_digits(value, DIGIT_BASE)
     
-    internal_resize(self, ndigits) or_return
     self.sign = .Positive if value >= 0 else .Negative
     
     /* 
@@ -221,38 +222,38 @@ Assumes `input` represents a base-10 number, for simplicity.
 May error out, in which case handling it is the caller's responsibility.
  */
 bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Error {
-    input  := input
-    radix  := radix
-    nchars := len(input)
+    input, radix := input, radix
+
+    log.info("===new call===")
+    defer log.info("===end call===")
     
     sign := Sign.Positive
-    prefix_loop: for nchars > 1 {
+    prefix_loop: for len(input) > 1 {
         switch input[0] {
         case '-': sign = .Negative if sign == .Positive else .Positive
         case '+': sign = .Positive
         case '0':
-            if radix == 0 && nchars > 2 && unicode.is_alpha(rune(input[1])) {
-                switch input[1] {
-                case 'b', 'B': radix = 2
-                case 'o', 'O': radix = 8
-                case 'd', 'D': radix = 10
-                case 'x', 'X': radix = 16
-                case:
+            if radix == 0 {
+                ok: bool
+                input, radix, ok = detect_radix(input)
+                if !ok {
+                    log.warnf("Invalid base prefix in '%s'", input)
                     return .Invalid_Radix
                 }
-                input = input[1:]
-                nchars -= 1
+                if radix != 10 {
+                    log.warnf("Base-%i strings may not be decoded properly!", radix)
+                }
+                continue prefix_loop
             }
         case:
             break prefix_loop
         }
         input = input[1:]
-        nchars -= 1
     }
     if radix == 0 {
         radix = 10
     }
-    if nchars == 0 {
+    if len(input) == 0 {
         bigint_set_zero(self)
         return nil
     }
@@ -272,7 +273,10 @@ bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Err
     if nextra != 0 {
         nblocks += 1
     }
-    fmt.eprintln("digits, width, blocks, extra :=", ndigits, nwidth, nblocks, nextra)
+    log.debugf("ndigits := %i", ndigits)
+    log.debugf("nwidth  := %i", nwidth)
+    log.debugf("nblocks := %i", nblocks)
+    log.debugf("nextra  := %i", nextra)
     internal_resize(self, nblocks) or_return
     self.sign = sign
     return internal_set_from_string(self, input, {
@@ -286,6 +290,9 @@ bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Err
 
 /* 
 Trim leading zeroes so that `bigint_print` slices the correct amount.
+
+Note: Just like the builtin procedure `resize`, `shrink` does *not* take an
+`Allocator` because dynamic arrays already remember their allocators.
  */
 bigint_trim :: proc(self: ^BigInt, minimize := false) -> Error {
     count := 0
@@ -305,32 +312,21 @@ bigint_trim :: proc(self: ^BigInt, minimize := false) -> Error {
      */
     if minimize {
         if _, memerr := shrink(&self.digits, self.active); memerr != nil {
-            return .Out_Of_Memory
+            log.fatal("Failed to shrink memory usage!")
+            return Error(memerr)
         }
     }
     return nil
 }
 
 bigint_print :: proc(self: BigInt, newline := true) {
+    context.allocator = context.temp_allocator
+    defer free_all(context.allocator) 
     defer if newline {
         fmt.println()
     }
-    if bigint_is_zero(self) {
-        fmt.print('0')
-        return
-    }
-    // Most significant digit should have no padding.
-    if first := self.digits[self.active - 1]; bigint_is_negative(self) {
-        fmt.print('-', first, sep = "")
-    } else {
-        fmt.print(first)
-    }
-    digits := self.digits[:self.active - 1]
-    #reverse for digit in digits {
-        // "%*spec" doesn't work anymore, need to do "%*[vararg-index]spec"
-        // https://github.com/odin-lang/Odin/issues/3605#issuecomment-2143625629
-        fmt.printf("%*[0]i", DIGIT_WIDTH, digit)
-    }
+    output, _ := bigint_to_string(self)
+    fmt.print(output)
 }
 
 // --- "COMPARE" FUNCTIONS ------------------------------------------------ {{{1

@@ -7,7 +7,7 @@ import "base:intrinsics"
 /*
 Get the number of `radix` digits needed to represent `value`.
  */
-count_digits :: proc(value: $T, #any_int radix := int(10)) -> int
+count_digits :: proc(value: $T, #any_int radix := 10) -> int
 where intrinsics.type_is_integer(T) {
     value := value
     // This is always the same no matter the base (except base 0).

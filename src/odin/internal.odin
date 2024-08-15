@@ -1,15 +1,19 @@
 //+private
 package bigint
 
-import "core:fmt"
+import "core:log"
 
 /*
 Wrapper to convert `mem.Allocator_Error` to `Error`.
+
+Note: The builtin procedure `resize` does *not* take an `Allocator`, since
+dynamic arrays already remember their allocators.
  */
 internal_resize :: proc(self: ^BigInt, nlen: int) -> Error {
     memerr := resize(&self.digits, nlen)
     if memerr != .None || len(self.digits) != nlen {
-        return .Out_Of_Memory
+        log.fatal("Failed to [re]allocate memory!")
+        return Error(memerr)
     }
     self.active = nlen
     return nil
@@ -50,6 +54,9 @@ Perhaps something is wrong with how we "split" non-base-10 digit strings.
 internal_set_from_string :: proc(self: ^BigInt, input: string, block: Block_Info) -> Error {
     block := block
 
+    log.info("===new call===")
+    defer log.info("===end call===")
+
     // Counters for base 10^9
     current_digit := WORD_TYPE(0)
     current_block := self.active - 1
@@ -61,6 +68,7 @@ internal_set_from_string :: proc(self: ^BigInt, input: string, block: Block_Info
         }
         digit, ok := get_digit(char, block.radix)
         if !ok {
+            log.errorf("Invalid base-%i digit '%c'", block.radix, char)
             return .Invalid_Digit
         }
         prev_digit := current_digit
@@ -68,7 +76,7 @@ internal_set_from_string :: proc(self: ^BigInt, input: string, block: Block_Info
         current_digit += WORD_TYPE(digit)
         block.index -= 1
         
-        fmt.eprintfln("block[%i]: %i -> %i", block.index, prev_digit, current_digit)
+        log.debugf("block[%i]: %i -> %i", block.index, prev_digit, current_digit)
         
         /* 
         If we overflowed, we need to save the digit/s that caused us to overflow
@@ -84,7 +92,7 @@ internal_set_from_string :: proc(self: ^BigInt, input: string, block: Block_Info
         
         // "flush" the current block by writing it.
         if block.index == 0 || overflowed {
-            fmt.eprintfln("[%i] := %i", current_block, current_digit)
+            log.debugf("[%i] := %i", current_block, current_digit)
             self.digits[current_block] = DIGIT_TYPE(current_digit)
             current_block -= 1
             current_digit = carry_digits
@@ -95,9 +103,9 @@ internal_set_from_string :: proc(self: ^BigInt, input: string, block: Block_Info
     if current_digit != 0 {
         internal_resize(self, self.active + 1) or_return
         self.digits[self.active - 1] = DIGIT_TYPE(current_digit)
-        fmt.eprintfln("[%i] := %i", self.active - 1, current_digit)
+        log.debugf("[%i] := %i", self.active - 1, current_digit)
     }
-    fmt.eprintln("result:", self.digits[:])
+    log.debug("result:", self.digits[:])
     return nil
 }
 

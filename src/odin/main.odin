@@ -5,6 +5,7 @@ import "core:mem"
 import "core:os"
 import "core:io"
 import "core:testing"
+import "core:log"
 
 main :: proc() {
     // https://gist.github.com/karl-zylinski/4ccf438337123e7c8994df3b03604e33
@@ -16,12 +17,21 @@ main :: proc() {
             print_tracking_allocator(track)
             mem.tracking_allocator_destroy(&track)
         }
+        
+        // No file path and timestamp.
+        options: log.Options = {
+            .Level,
+            .Terminal_Color,
+            .Procedure
+        }
+        logger := log.create_console_logger(opt = options)
+        context.logger = logger
+        defer log.destroy_console_logger(logger)
     }
     stdin := os.stream_from_handle(os.stdin)
+
     x, y, dst: BigInt
-    /* 
-    NOTE: Assumes all BigInt was allocated via `context.allocator`!
-     */
+    bigint_init_multi(&x, &y, &dst)
     defer {
         bigint_destroy(&dst)
         bigint_destroy(&y)
@@ -55,77 +65,31 @@ main :: proc() {
         bigint_print(y)
         
         bigint_add(&dst, x, y) or_break
-        fmt.print("x + y = ")
-        bigint_print(dst)
+        print_equation(x, y, dst, '+')
         
         bigint_sub(&dst, x, y) or_break
-        fmt.print("x - y = ")
-        bigint_print(dst)
+        print_equation(x, y, dst, '-')
     }
 }
 
-@(test)
-arith_tests :: proc(test: ^testing.T) {
-    x, y, dst: BigInt
-    defer {
-        bigint_destroy(&x)
-        bigint_destroy(&y)
-        bigint_destroy(&dst)
-    }
-    bigint_init_multi(&x, &y, &dst)
-    
-    /* 
-    Accounts for |x| < |y|:
-        1    +   2  and   1  -   2
-        1    + (-2) and   1  - (-2)
-        (-1) +   2  and  (-1) -   2
-        (-1) + (-2) and (-1) - (-2)
-     */
-    fmt.println("=== begin tests ===", flush = false)
-    for mulx := 1; mulx >= -1; mulx -= 2 {
-        for muly := 1; muly >= -1; muly -= 2 {
-            bigint_set_from_integer(&x, 1 * mulx)
-            bigint_set_from_integer(&y, 2 * muly)
-
-            bigint_add(&dst, x, y)
-            print_equation(x, y, dst, '+')
-            
-            bigint_sub(&dst, x, y)
-            print_equation(x, y, dst, '-')
-        }
-    }
-    fmt.println("=== end tests ===", flush = false)
-    fmt.println(flush = true)
-}
-
-@(test)
-set_tests :: proc(_: ^testing.T) {
-    x: BigInt
-    defer bigint_destroy(&x)
-    
-    fmt.println("=== begin test ===", flush = false)
-    
-    bigint_set_from_integer(&x, min(u8))
-
-    buf: [64]byte
-    fmt.printfln("x := %s", bigint_to_string(x, buf[:]), flush = false)
-    
-    fmt.println("=== end test ===", flush = true)
-}
-
+@(private="file")
 print_equation :: proc(x, y, dst: BigInt, op: rune) {
-    xbuf, ybuf, zbuf: [64]byte
-    xstr, ystr := bigint_to_string(x, xbuf[:]), bigint_to_string(y, ybuf[:])
-    zstr := bigint_to_string(dst, zbuf[:])
+    context.allocator = context.temp_allocator
+    defer free_all(context.allocator)
+    xstr, _ := bigint_to_string(x)
+    ystr, _ := bigint_to_string(y)
+    zstr, _ := bigint_to_string(dst)
     fmt.printf("%s %c %s = %s\n", xstr, op, ystr, zstr, flush = false)
 }
 
+@(private="file", require_results)
 try_read_line :: proc(stream: io.Stream, allocator := context.allocator) -> (string, bool) {
-    input, err := read_line(stream, allocator)
+    context.allocator = allocator
+    input, err := read_line(stream)
     ok := err == nil
     if !ok {
         if err != .EOF {
-            fmt.eprintfln("Error in read_line(): %v", err)
+            log.errorf("read_line(): %v", err)
         }
     }
     return input, ok
@@ -139,14 +103,14 @@ print_comparison :: proc(x, y: BigInt) {
 }
 
 // This is just here so I can conceptualize how to convert between bases.
-print_number :: proc(input: string, radix := int(0)) {
+print_number :: proc(input: string, #any_int radix := 0) {
     input, radix := input, radix
     if radix == 0 {
         ok: bool
         prefix := string(input[:2]) if len(input) > 2 else input
         input, radix, ok = detect_radix(input)
         if !ok {
-            fmt.eprintfln("Unknown base prefix '%s'", prefix)
+            log.errorf("Unknown base prefix '%s'", prefix)
             return
         }
     }
@@ -156,7 +120,7 @@ print_number :: proc(input: string, radix := int(0)) {
     #reverse for char in input {
         digit, ok := get_digit(char, radix)
         if !ok {
-            fmt.eprintfln("Unknown base-%i digit '%c'", radix, char)
+            log.errorf("Unknown base-%i digit '%c'", radix, char)
             return
         }
         final_value += digit * place_value
