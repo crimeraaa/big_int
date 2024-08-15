@@ -18,43 +18,49 @@ main :: proc() {
         }
     }
     stdin := os.stream_from_handle(os.stdin)
-    for {
+    x, y, dst: BigInt
+    /* 
+    NOTE: Assumes all BigInt was allocated via `context.allocator`!
+     */
+    defer {
+        bigint_destroy(&dst)
+        bigint_destroy(&y)
+        bigint_destroy(&x)
+    }
+
+    input_loop: for {
         defer free_all(context.temp_allocator)
 
-        first, second: string
-        defer {
-            delete(second)
-            delete(first)
-        }
         fmt.print("Enter a value for 'x': ")
-        first = try_read_line(stdin) or_break
+        first := try_read_line(stdin, context.temp_allocator) or_break
         fmt.print("Enter a value for 'y': ")
-        second = try_read_line(stdin) or_break
+        second := try_read_line(stdin, context.temp_allocator) or_break
         
-        x, y, dst: BigInt
-        defer {
-            bigint_destroy(&dst)
-            bigint_destroy(&y)
-            bigint_destroy(&x)
+        #partial switch bigint_set_from_string(&x, first, 0) {
+        case .Out_Of_Memory:
+            break input_loop
+        case .Invalid_Digit, .Invalid_Radix:
+            continue input_loop
         }
-        x   = try_make_bigint(first) or_break
-        y   = try_make_bigint(second) or_break
-        dst = bigint_make(context.allocator) or_break
-        
-        fmt.println(x.digits, y.digits)
+        #partial switch bigint_set_from_string(&y, second, 0) {
+        case .Out_Of_Memory:
+            break input_loop
+        case .Invalid_Digit, .Invalid_Radix:
+            continue input_loop
+        }
         
         fmt.print("x, y := ")
-        bigint_print(&x, newline = false)
+        bigint_print(x, newline = false)
         fmt.print(", ")
-        bigint_print(&y)
+        bigint_print(y)
         
-        bigint_add(&dst, &x, &y) or_break
+        bigint_add(&dst, x, y) or_break
         fmt.print("x + y = ")
-        bigint_print(&dst)
+        bigint_print(dst)
         
-        bigint_sub(&dst, &x, &y) or_break
+        bigint_sub(&dst, x, y) or_break
         fmt.print("x - y = ")
-        bigint_print(&dst)
+        bigint_print(dst)
     }
 }
 
@@ -66,9 +72,7 @@ arith_tests :: proc(test: ^testing.T) {
         bigint_destroy(&y)
         bigint_destroy(&dst)
     }
-    bigint_init(&x)
-    bigint_init(&y)
-    bigint_init(&dst)
+    bigint_init_multi(&x, &y, &dst)
     
     /* 
     Accounts for |x| < |y|:
@@ -83,11 +87,11 @@ arith_tests :: proc(test: ^testing.T) {
             bigint_set_from_integer(&x, 1 * mulx)
             bigint_set_from_integer(&y, 2 * muly)
 
-            bigint_add(&dst, &x, &y)
-            print_equation(&x, &y, &dst, '+')
+            bigint_add(&dst, x, y)
+            print_equation(x, y, dst, '+')
             
-            bigint_sub(&dst, &x, &y)
-            print_equation(&x, &y, &dst, '-')
+            bigint_sub(&dst, x, y)
+            print_equation(x, y, dst, '-')
         }
     }
     fmt.println("=== end tests ===", flush = false)
@@ -97,30 +101,23 @@ arith_tests :: proc(test: ^testing.T) {
 @(test)
 set_tests :: proc(_: ^testing.T) {
     x: BigInt
+    defer bigint_destroy(&x)
     
     fmt.println("=== begin test ===", flush = false)
-    bigint_init(&x)
-    defer bigint_destroy(&x)
     
     bigint_set_from_integer(&x, min(u8))
 
     buf: [64]byte
-    fmt.printfln("x := %s", bigint_to_string(&x, buf[:]), flush = false)
+    fmt.printfln("x := %s", bigint_to_string(x, buf[:]), flush = false)
     
     fmt.println("=== end test ===", flush = true)
 }
 
-print_equation :: proc(x, y, dst: ^BigInt, op: rune) {
+print_equation :: proc(x, y, dst: BigInt, op: rune) {
     xbuf, ybuf, zbuf: [64]byte
     xstr, ystr := bigint_to_string(x, xbuf[:]), bigint_to_string(y, ybuf[:])
     zstr := bigint_to_string(dst, zbuf[:])
     fmt.printf("%s %c %s = %s\n", xstr, op, ystr, zstr, flush = false)
-}
-
-try_make_bigint :: proc(input: string, allocator := context.allocator) -> (self: BigInt, err: Error) {
-    self = bigint_make(allocator) or_return
-    bigint_set_from_string(&self, input, radix = 0) or_return
-    return self, .Okay
 }
 
 try_read_line :: proc(stream: io.Stream, allocator := context.allocator) -> (string, bool) {
@@ -134,7 +131,7 @@ try_read_line :: proc(stream: io.Stream, allocator := context.allocator) -> (str
     return input, ok
 }
 
-print_comparison :: proc(x, y: ^BigInt) {
+print_comparison :: proc(x, y: BigInt) {
     result := bigint_cmp(x, y)
     bigint_print(x, newline = false)
     fmt.printf(" is %s ", Comparison_String[result])
@@ -145,10 +142,10 @@ print_comparison :: proc(x, y: ^BigInt) {
 print_number :: proc(input: string, radix := int(0)) {
     input, radix := input, radix
     if radix == 0 {
-        err: Error
+        ok: bool
         prefix := string(input[:2]) if len(input) > 2 else input
-        input, radix, err = detect_radix(input)
-        if err == .Invalid_Radix {
+        input, radix, ok = detect_radix(input)
+        if !ok {
             fmt.eprintfln("Unknown base prefix '%s'", prefix)
             return
         }
@@ -157,8 +154,8 @@ print_number :: proc(input: string, radix := int(0)) {
     // Dependent on `base`.
     final_value, place_value := 0, 1
     #reverse for char in input {
-        digit, err := get_digit(char, radix)
-        if err == .Invalid_Digit {
+        digit, ok := get_digit(char, radix)
+        if !ok {
             fmt.eprintfln("Unknown base-%i digit '%c'", radix, char)
             return
         }

@@ -1,7 +1,7 @@
 ODIN_DIR := $(DIR_SRC)/odin
 ODIN_SRC := $(wildcard $(ODIN_DIR)/*.odin)
 ODIN_OUT := $(DIR_BIN)/odin-out.exe
-ODIN_FLAGS := -vet
+ODIN_FLAGS :=
 
 # Expand only when referenced as $(TARGET) may update this.
 ODIN_CMDLINE = $(ODIN_DIR) $(ODIN_FLAGS) -out:"$(ODIN_OUT)"

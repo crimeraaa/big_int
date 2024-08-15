@@ -23,34 +23,36 @@ where intrinsics.type_is_integer(T) {
     return count
 }
 
-detect_radix :: proc(input: string) -> (rest: string, radix: int, err: Error) {
-    if len(input) < 2 {
-        return input, 10, nil
-    }
-
-    if input[0] == '0' && unicode.is_alpha(rune(input[1])) {
+/* 
+`rest` is a slice of `input` which excludes the prefix, if applicable. Otherwise,
+if there is no prefix, we assume we just need to return `input` as is.
+ */
+detect_radix :: proc(input: string) -> (rest: string, radix: int, ok: bool) {
+    // May have prefix AND some number of digits? e.g. "0x" alone is invalid.
+    if len(input) > 2 && input[0] == '0' && unicode.is_alpha(rune(input[1])) {
         switch input[1] {
         case 'b', 'B': radix = 2
         case 'o', 'O': radix = 8
         case 'd', 'D': radix = 10
         case 'x', 'X': radix = 16
         case:
-            return input, 10, .Invalid_Radix
+            return input, 10, false
         }
+        return input[2:], radix, true
     }
-    return input[2:], radix, nil
+    return input, 10, true
 }
 
-get_digit :: proc(character: rune, radix: int) -> (digit: int, err: Error) {
+get_digit :: proc(character: rune, radix: int) -> (digit: int, ok: bool) {
     switch character {
     case '0'..='9': digit = int(character - '0')
     case 'a'..='f': digit = int(character - 'a' + 10)
     case 'A'..='F': digit = int(character - 'A' + 10)
     case:
-        return 0, .Invalid_Digit
+        return 0, false
     }
     if !(0 <= digit && digit < radix) {
-        return 0, .Invalid_Digit
+        return 0, false
     }
-    return digit, nil
+    return digit, true
 }

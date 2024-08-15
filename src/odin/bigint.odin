@@ -3,15 +3,42 @@ package bigint
 import "base:intrinsics"
 import "core:fmt"
 import "core:mem"
+import "core:unicode"
 
 /* 
-`DIGIT_TYPE`:
-    Our internal representation of a single digit of specified `DIGIT_BASE`.
+Our internal representation of a single digit of specified `DIGIT_BASE`.
+It must be capable of holding all values in the range `0..<DIGIT_BASE`.
  */
 DIGIT_TYPE  :: distinct u32
+WORD_TYPE   :: distinct u64
+
+/* 
+Some multiple of 10 that fits in `DIGIT_TYPE`. We use a multiple of 10 since
+it makes things somewhat easier when conceptualizing.
+
+Since `DIGIT_TYPE` is a `u32`, the maximum actual value is 4_294_967_296.
+However we need the get the nearest lower power of 10.
+ */
 DIGIT_BASE  :: 1_000_000_000
-DIGIT_MAX   :: 2 * (DIGIT_BASE - 1)
+
+/* 
+The number of zeroes in `DIGIT_BASE`.
+ */
 DIGIT_WIDTH :: 9
+
+/* 
+`DIGIT_WIDTH_{BIN,OCT,HEX}`:
+    Number of base-N digits needed to represent `DIGIT_BASE`.
+
+Rationale, see Python output of the following:
+
+    DIGIT_WIDTH_BIN = len(bin(DIGIT_BASE)) - 2
+    DIGIT_WIDTH_OCT = len(oct(DIGIT_BASE)) - 2
+    DIGIT_WIDTH_HEX = len(hex(DIGIT_BASE)) - 2
+ */
+DIGIT_WIDTH_BIN :: 30
+DIGIT_WIDTH_OCT :: 10
+DIGIT_WIDTH_HEX :: 8
 
 #assert(DIGIT_BASE < max(DIGIT_TYPE))
 
@@ -41,41 +68,43 @@ BigInt :: struct {
 
 // --- INITIALIZATION FUNCTIONS ------------------------------------------- {{{1
 
-bigint_init :: proc {
-    bigint_init_none,
-    bigint_init_cap,
-}
-
-bigint_init_none :: proc(self: ^BigInt, allocator := context.allocator) -> Error {
-    return bigint_init_cap(self, 0, allocator)
-}
-
-bigint_init_cap :: proc(self: ^BigInt, capacity: int, allocator := context.allocator) -> Error {
+bigint_init :: proc(self: ^BigInt, capacity := 0, allocator := context.allocator) -> Error {
+    context.allocator = allocator
     // make($T, len, allocator) -> mem.Allocator_Error
-    memerr: mem.Allocator_Error
-    self.digits, memerr = make([dynamic]DIGIT_TYPE, capacity, allocator)
-    if memerr != .None {
-        return .Out_Of_Memory
+    if capacity != 0 {
+        memerr: mem.Allocator_Error
+        self.digits, memerr = make([dynamic]DIGIT_TYPE, capacity)
+        if memerr != .None {
+            return .Out_Of_Memory
+        }
     }
     bigint_clear(self)
     return nil
 }
 
-bigint_make :: proc {
-    bigint_make_none,
-    bigint_make_cap,
+/* 
+Allocate several `BigInt` with `capacity` digits, all at once.
+ */
+bigint_init_multi :: proc(args: ..^BigInt, capacity := 0, allocator := context.allocator) -> Error {
+    context.allocator = allocator
+    for arg in args {
+        bigint_init(arg, capacity) or_return
+    }
+    return nil
 }
 
-bigint_make_none :: proc(allocator := context.allocator) -> (BigInt, Error) {
-    return bigint_make_cap(0, allocator)
-}
-
-bigint_make_cap :: proc(capacity: int, allocator := context.allocator) -> (BigInt, Error) {
+bigint_make :: proc(capacity := 0, allocator := context.allocator) -> (BigInt, Error) {
+    context.allocator = allocator
     self: BigInt
-    err := bigint_init_cap(&self, capacity, allocator)
+    err := bigint_init(&self, capacity)
     return self, err
 }
 
+/* 
+Zeroes out all elements in `self.digits` but does not deallocate it.
+This ensures that all indexes in the range `0..<len(self.digits)` are still
+writable.
+ */
 bigint_clear :: proc(self: ^BigInt) {
     mem.zero_slice(self.digits[:])
     self.active = 0
@@ -94,11 +123,11 @@ bigint_destroy :: proc(self: ^BigInt) {
 /*
 Ideally, if we are 0, then `self.active` should also be 0.
  */
-bigint_is_zero :: #force_inline proc(self: ^BigInt) -> bool {
+bigint_is_zero :: #force_inline proc(self: BigInt) -> bool {
     return self.active == 0
 }
 
-bigint_is_negative :: #force_inline proc(self: ^BigInt) -> bool {
+bigint_is_negative :: #force_inline proc(self: BigInt) -> bool {
     return self.sign == .Negative
 }
 
@@ -109,25 +138,25 @@ bigint_to_string :: proc {
 /* 
 TODO: Probably do something better than this...
  */
-bigint_to_string_fixed :: proc(self: ^BigInt, buf: []byte) -> string {
+bigint_to_string_fixed :: proc(self: BigInt, buf: []byte) -> string {
     if bigint_is_zero(self) {
         return fmt.bprint(buf, '0')
     }
     // Most significant digit should have no padding.
-    offset := 0
+    next := buf[:]
     if first := self.digits[self.active - 1]; bigint_is_negative(self) {
-        fmt.bprintf(buf, "-%i", first)
-        offset = 2
+        fmt.bprintf(next, "-%i", first)
+        next = next[2:]
     } else {
-        fmt.bprint(buf, first)
-        offset = 1
+        fmt.bprint(next, first)
+        next = next[1:]
     }
-    #reverse for digit in self.digits[:self.active - 1] {
-        if offset >= len(buf) {
+    #reverse for digit, index in self.digits[:self.active - 1] {
+        if index >= len(buf) {
             panic("buffer overflow")
         }
-        tmp := fmt.bprintf(buf[offset:], "%*[0]i", DIGIT_WIDTH, digit)
-        offset += len(tmp)
+        tmp := fmt.bprintf(next, "%*[0]i", DIGIT_WIDTH, digit)
+        next = next[len(tmp):]
     }
     return string(buf[:])
 }
@@ -143,7 +172,7 @@ bigint_set :: proc {
 
 bigint_set_zero :: bigint_clear
 
-bigint_set_from_integer :: proc(self: ^BigInt, #any_int value: int) -> Error {
+bigint_set_from_integer :: proc(self: ^BigInt, #any_int value: int, allocator := context.allocator) -> Error {
     if value == 0 {
         bigint_clear(self)
         return nil
@@ -151,8 +180,7 @@ bigint_set_from_integer :: proc(self: ^BigInt, #any_int value: int) -> Error {
     ndigits := count_digits(value, DIGIT_BASE)
     
     internal_resize(self, ndigits) or_return
-    self.active = ndigits
-    self.sign   = .Positive if value >= 0 else .Negative
+    self.sign = .Positive if value >= 0 else .Negative
     
     /* 
     Will getting the absolute value cause `rest` to overflow?
@@ -172,15 +200,15 @@ bigint_set_from_integer :: proc(self: ^BigInt, #any_int value: int) -> Error {
     /*
     TODO: Implement in terms of sub, not add.
     */
-    return internal_add_digit(self, self, 1) if is_maxneg else nil
+    return internal_add_digit(self, self^, 1) if is_maxneg else nil
 }
 
 @(private, require_results)
 count_only_numeric_characters :: proc(input: string, radix := 10) -> int {
     count := 0
     for char in input {
-        _, err := get_digit(char, radix)
-        if err == nil {
+        _, ok := get_digit(char, radix)
+        if ok {
             count += 1
         }
     }
@@ -189,6 +217,8 @@ count_only_numeric_characters :: proc(input: string, radix := 10) -> int {
 
 /* 
 Assumes `input` represents a base-10 number, for simplicity.
+
+May error out, in which case handling it is the caller's responsibility.
  */
 bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Error {
     input  := input
@@ -201,14 +231,14 @@ bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Err
         case '-': sign = .Negative if sign == .Positive else .Positive
         case '+': sign = .Positive
         case '0':
-            if radix == 0 && nchars > 2 && input[1] != '0' {
+            if radix == 0 && nchars > 2 && unicode.is_alpha(rune(input[1])) {
                 switch input[1] {
                 case 'b', 'B': radix = 2
                 case 'o', 'O': radix = 8
                 case 'd', 'D': radix = 10
                 case 'x', 'X': radix = 16
                 case:
-                    break prefix_loop
+                    return .Invalid_Radix
                 }
                 input = input[1:]
                 nchars -= 1
@@ -236,48 +266,20 @@ bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Err
         digits[1] := 123        (10^9)^1 place
      */
     ndigits := count_only_numeric_characters(input, radix)
-    nblocks := ndigits / DIGIT_WIDTH
-    nextra  := ndigits % DIGIT_WIDTH
+    nwidth  := internal_get_block_width(radix)
+    nblocks := ndigits / nwidth
+    nextra  := ndigits % nwidth
     if nextra != 0 {
         nblocks += 1
     }
+    fmt.eprintln("digits, width, blocks, extra :=", ndigits, nwidth, nblocks, nextra)
     internal_resize(self, nblocks) or_return
-    self.active = nblocks
-    self.sign   = sign
-    
-    // Counters for base 10^9
-    current_digit := DIGIT_TYPE(0)
-    current_block := nblocks - 1
-    block_index   := int(nextra if nextra > 0 else DIGIT_WIDTH)
-    
-    /* 
-    TODO: Properly "slice" binary, octal and hexadecimal strings.
-    e.g: printing out the raw slice of `0xffff_ffff` vs `4,294,967,295` gives us
-    different results.
-     */
-    for char in input {
-        if char == ' ' || char == '_' || char == ',' {
-            continue
-        }
-        digit, err := get_digit(char, radix)
-        if err != nil {
-            fmt.eprintfln("Invalid base-%i digit '%c'", radix, char)
-            bigint_destroy(self)
-            return err
-        }
-        current_digit *= DIGIT_TYPE(radix)
-        current_digit += DIGIT_TYPE(digit)
-        block_index -= 1
-        
-        // At end of block, so set in array and prepare to write new block
-        if block_index == 0 {
-            self.digits[current_block] = current_digit
-            current_block -= 1
-            current_digit = 0
-            block_index = DIGIT_WIDTH
-        }
-    }
-    return nil
+    self.sign = sign
+    return internal_set_from_string(self, input, {
+        radix = radix,
+        width = nwidth,
+        index = nextra if nextra > 0 else nwidth,
+    })
 }
 
 // 1}}} ------------------------------------------------------------------------
@@ -298,15 +300,23 @@ bigint_trim :: proc(self: ^BigInt, minimize := false) -> Error {
     if self.active -= count; self.active == 0 {
         self.sign = .Positive
     }
-    return internal_resize(self, self.active) if minimize else nil
+    /* 
+    See: https://pkg.odin-lang.org/base/runtime/#shrink_dynamic_array
+     */
+    if minimize {
+        if _, memerr := shrink(&self.digits, self.active); memerr != nil {
+            return .Out_Of_Memory
+        }
+    }
+    return nil
 }
 
-bigint_print :: proc(self: ^BigInt, newline := true) {
+bigint_print :: proc(self: BigInt, newline := true) {
+    defer if newline {
+        fmt.println()
+    }
     if bigint_is_zero(self) {
         fmt.print('0')
-        if newline {
-            fmt.println()
-        }
         return
     }
     // Most significant digit should have no padding.
@@ -320,9 +330,6 @@ bigint_print :: proc(self: ^BigInt, newline := true) {
         // "%*spec" doesn't work anymore, need to do "%*[vararg-index]spec"
         // https://github.com/odin-lang/Odin/issues/3605#issuecomment-2143625629
         fmt.printf("%*[0]i", DIGIT_WIDTH, digit)
-    }
-    if newline {
-        fmt.println()
     }
 }
 
@@ -341,20 +348,34 @@ Comparison_String := [Comparison]string {
 }
 
 @(require_results)
-bigint_cmp :: proc(x, y: ^BigInt) -> Comparison {
+bigint_cmp :: proc(x, y: BigInt) -> Comparison {
     x_is_negative := bigint_is_negative(x)
 
     /* 
     With different signs we can assume that a negative number is always
     less than a postiive one.
+    
+    Accounts for:
+          1  > (-2)
+        (-1) <   2
+          2  > (-1)
+        (-2) <   1
      */
     if x.sign != y.sign {
         return .Less if x_is_negative else .Greater
     }
+
     /* 
     At this point we know that both numbers have the same sign.
-    If positive, more digits means greater in value.
-    If negative, more digits means lesser in value.
+
+    If both are positive, having more digits means greater in value.
+    If both are negative, having more digits means lesser in value.
+    
+    Accounts for:
+          11  >    2
+        (-11) <  (-2)
+           2  <   11
+         (-2) > (-11)
      */
     if x.active != y.active {
         if x_is_negative {
@@ -365,7 +386,13 @@ bigint_cmp :: proc(x, y: ^BigInt) -> Comparison {
     }
     /* 
     At this point we know both `x` and `y` have the same sign and the same
-    number of active digits. Note: 213 < 214 but -213 < -214.
+    number of active digits.
+    
+    Accounts for:
+          123  <   456
+        (-123) > (-456)
+          456  >   123
+        (-456) < (-123)
      */
     for xdigit, xindex in x.digits[:x.active] {
         ydigit := y.digits[xindex]
@@ -380,43 +407,43 @@ bigint_cmp :: proc(x, y: ^BigInt) -> Comparison {
     return .Equal
 }
 
-bigint_eq :: #force_inline proc(x, y: ^BigInt) -> bool {
+bigint_eq :: #force_inline proc(x, y: BigInt) -> bool {
     return bigint_cmp(x, y) == .Equal
 }
 
-bigint_lt :: #force_inline proc(x, y: ^BigInt) -> bool {
+bigint_lt :: #force_inline proc(x, y: BigInt) -> bool {
     return bigint_cmp(x, y) == .Less
 }
 
-bigint_gt :: #force_inline proc(x, y: ^BigInt) -> bool {
+bigint_gt :: #force_inline proc(x, y: BigInt) -> bool {
     return bigint_cmp(x, y) == .Greater
 }
 
 /* 
     x != y == !(x == y)
  */
-bigint_neq :: #force_inline proc(x, y: ^BigInt) -> bool {
+bigint_neq :: #force_inline proc(x, y: BigInt) -> bool {
     return !bigint_eq(x, y)
 }
 
 /* 
     x <= y == !(x > y)
  */
-bigint_leq :: #force_inline proc(x, y: ^BigInt) -> bool {
+bigint_leq :: #force_inline proc(x, y: BigInt) -> bool {
     return !bigint_gt(x, y)
 }
 
 /* 
     x >= y == !(x < y)
  */
-bigint_geq :: #force_inline proc(x, y: ^BigInt) -> bool {
+bigint_geq :: #force_inline proc(x, y: BigInt) -> bool {
     return !bigint_lt(x, y)
 }
 
 /* 
 Compare the digit arrays without considering sign.
  */
-bigint_cmp_abs :: proc(x, y: ^BigInt) -> Comparison {
+bigint_cmp_abs :: proc(x, y: BigInt) -> Comparison {
     if x.active != y.active {
         return .Less if x.active < y.active else .Greater
     }
@@ -432,42 +459,42 @@ bigint_cmp_abs :: proc(x, y: ^BigInt) -> Comparison {
 /* 
     |x| == |y|
  */
-bigint_eq_abs :: #force_inline proc(x, y: ^BigInt) -> bool {
+bigint_eq_abs :: #force_inline proc(x, y: BigInt) -> bool {
     return bigint_cmp_abs(x, y) == .Equal
 }
 
 /* 
     |x| < |y|
  */
-bigint_lt_abs :: #force_inline proc(x, y: ^BigInt) -> bool {
+bigint_lt_abs :: #force_inline proc(x, y: BigInt) -> bool {
     return bigint_cmp_abs(x, y) == .Less
 }
 
 /*  
     |x| > |y|
  */
-bigint_gt_abs :: #force_inline proc(x, y: ^BigInt) -> bool {
+bigint_gt_abs :: #force_inline proc(x, y: BigInt) -> bool {
     return bigint_cmp_abs(x, y) == .Greater
 }
 
 /* 
     |x| != |y| == !(|x| == |y|)
  */
-bigint_neq_abs :: #force_inline proc(x, y: ^BigInt) -> bool {
+bigint_neq_abs :: #force_inline proc(x, y: BigInt) -> bool {
     return !bigint_eq_abs(x, y)
 }
 
 /* 
     |x| <= |y| == !(|x| > |y|)
  */
-bigint_leq_abs :: #force_inline proc(x, y: ^BigInt) -> bool {
+bigint_leq_abs :: #force_inline proc(x, y: BigInt) -> bool {
     return !bigint_gt_abs(x, y)
 }
 
 /* 
     |x| >= |y| == !(|x| < |y|)
  */
-bigint_geq_abs :: #force_inline proc(x, y: ^BigInt) -> bool {
+bigint_geq_abs :: #force_inline proc(x, y: BigInt) -> bool {
     return !bigint_lt_abs(x, y)
 }
 
@@ -480,7 +507,7 @@ bigint_abs :: #force_inline proc(self: ^BigInt) {
 }
 
 bigint_neg :: proc(self: ^BigInt) {
-    if bigint_is_zero(self) {
+    if bigint_is_zero(self^) {
         return
     }
     self.sign = .Positive if self.sign == .Negative else .Negative
@@ -496,15 +523,14 @@ Some key assumptions:
     3. (-x) +   y  ==   y - x  or  -(x - y)
     4. x    + (-y) ==   x - y
  */
-bigint_add :: proc(dst, x, y: ^BigInt) -> Error {
+bigint_add :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
     x, y := x, y
 
     // Addition between 2 digits of the same base results in, at most, +1 digit.
     nlen := max(x.active, y.active) + 1
     internal_resize(dst, nlen) or_return
     mem.zero_slice(dst.digits[:])
-    dst.active = nlen
-    dst.sign   = x.sign
+    dst.sign = x.sign
 
     /* 
     Assumptions 3 and 4.
@@ -537,14 +563,13 @@ Some key assumptions:
     3. (-x) -   y  == -(x + y)
     4.   x  - (-y) ==   x + y
  */
-bigint_sub :: proc(dst, x, y: ^BigInt) -> Error {
+bigint_sub :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
     x, y := x, y
 
     // No need for +1 since subtraction should never result in an extra digit.
     nlen := max(x.active, y.active)
     internal_resize(dst, nlen) or_return
-    dst.active = nlen
-    dst.sign   = x.sign
+    dst.sign = x.sign
 
     /* 
     Assumptions 3 and 4.
