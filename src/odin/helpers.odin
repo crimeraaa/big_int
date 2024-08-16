@@ -27,7 +27,7 @@ where intrinsics.type_is_integer(T) {
 `rest` is a slice of `input` which excludes the prefix, if applicable. Otherwise,
 if there is no prefix, we assume we just need to return `input` as is.
  */
-detect_radix :: proc(input: string) -> (rest: string, radix: int, ok: bool) {
+detect_number_string_radix :: proc(input: string) -> (rest: string, radix: int, ok: bool) {
     // May have prefix AND some number of digits? e.g. "0x" alone is invalid.
     if len(input) > 2 && input[0] == '0' && unicode.is_alpha(rune(input[1])) {
         switch input[1] {
@@ -43,11 +43,11 @@ detect_radix :: proc(input: string) -> (rest: string, radix: int, ok: bool) {
     return input, 10, true
 }
 
-get_digit :: proc(character: rune, radix: int) -> (digit: int, ok: bool) {
-    switch character {
-    case '0'..='9': digit = int(character - '0')
-    case 'a'..='f': digit = int(character - 'a' + 10)
-    case 'A'..='F': digit = int(character - 'A' + 10)
+convert_char_to_digit :: proc(char: rune, radix: int) -> (digit: int, ok: bool) {
+    switch char {
+    case '0'..='9': digit = int(char - '0')
+    case 'a'..='f': digit = int(char - 'a' + 10)
+    case 'A'..='F': digit = int(char - 'A' + 10)
     case:
         return 0, false
     }
@@ -55,4 +55,20 @@ get_digit :: proc(character: rune, radix: int) -> (digit: int, ok: bool) {
         return 0, false
     }
     return digit, true
+}
+
+/* 
+Assumptions:
+    1. Base prefix, if any, was skipped.
+    2. Leading 0's, if any, were skipped.
+ */
+count_numeric_chars_only :: proc(input: string, radix: int) -> int {
+    count := 0
+    for char in input {
+        _, ok := convert_char_to_digit(char, radix)
+        if ok {
+            count += 1
+        }
+    }
+    return count
 }

@@ -9,10 +9,22 @@ import "core:unicode"
 
 /* 
 Our internal representation of a single digit of specified `DIGIT_BASE`.
-It must be capable of holding all values in the range `0..<DIGIT_BASE`.
+It must be capable of holding all values in the range `0..=DIGIT_MAX`.
  */
-DIGIT_TYPE  :: distinct u32
-WORD_TYPE   :: distinct u64
+DIGIT_TYPE :: distinct u32
+
+/* 
+Our internal representation of the result of any arithmetic between any 2
+`DIGIT_TYPE`. 
+
+E.g. if `DIGIT_BASE == 1_000_000_000`, this must be capable of representing the
+following:
+
+            0 - DIGIT_MAX = -999_999_999
+    DIGIT_MAX + DIGIT_MAX = 1_999_999_998
+    DIGIT_MAX * DIGIT_MAX = 999_999_998_000_000_001
+ */
+WORD_TYPE :: distinct i64
 
 /* 
 Some multiple of 10 that fits in `DIGIT_TYPE`. We use a multiple of 10 since
@@ -21,22 +33,23 @@ it makes things somewhat easier when conceptualizing.
 Since `DIGIT_TYPE` is a `u32`, the maximum actual value is 4_294_967_296.
 However we need the get the nearest lower power of 10.
  */
-DIGIT_BASE  :: 1_000_000_000
+DIGIT_BASE :: 1_000_000_000
+DIGIT_MAX :: DIGIT_BASE - 1
 
 /* 
-The number of zeroes in `DIGIT_BASE`.
+The number of base-10 digits in `DIGIT_MAX`.
  */
 DIGIT_WIDTH :: 9
 
 /* 
 `DIGIT_WIDTH_{BIN,OCT,HEX}`:
-    Number of base-N digits needed to represent `DIGIT_BASE`.
+    Number of base-N digits needed to represent `DIGIT_MAX`.
 
 Rationale, see Python output of the following:
 
-    DIGIT_WIDTH_BIN = len(bin(DIGIT_BASE)) - 2
-    DIGIT_WIDTH_OCT = len(oct(DIGIT_BASE)) - 2
-    DIGIT_WIDTH_HEX = len(hex(DIGIT_BASE)) - 2
+    DIGIT_WIDTH_BIN = len(bin(DIGIT_MAX)) - 2
+    DIGIT_WIDTH_OCT = len(oct(DIGIT_MAX)) - 2
+    DIGIT_WIDTH_HEX = len(hex(DIGIT_MAX)) - 2
  */
 DIGIT_WIDTH_BIN :: 30
 DIGIT_WIDTH_OCT :: 10
@@ -114,7 +127,14 @@ bigint_clear :: proc(self: ^BigInt) {
 
 bigint_destroy :: proc(self: ^BigInt) {
     delete(self.digits)
+    self.digits = nil
     bigint_clear(self)
+}
+
+bigint_destroy_multi :: proc(args: ..^BigInt) {
+    for arg in args {
+        bigint_destroy(arg)
+    }
 }
 
 // 1}}} ------------------------------------------------------------------------
@@ -138,7 +158,7 @@ be the caller's responsibility.
  */
 bigint_to_string :: proc(self: BigInt, allocator := context.allocator) -> (out: string, err: Error) {
     context.allocator = allocator
-    builder, memerr := strings.builder_make_len(self.active * DIGIT_WIDTH)
+    builder, memerr := strings.builder_make_len(1 + self.active * DIGIT_WIDTH)
     if memerr != nil {
         return "", Error(memerr)
     }
@@ -180,7 +200,7 @@ bigint_set_from_integer :: proc(self: ^BigInt, value: int) -> Error {
         return nil
     }
     ndigits := count_digits(value, DIGIT_BASE)
-    
+    internal_resize(self, ndigits) or_return
     self.sign = .Positive if value >= 0 else .Negative
     
     /* 
@@ -204,18 +224,6 @@ bigint_set_from_integer :: proc(self: ^BigInt, value: int) -> Error {
     return internal_add_digit(self, self^, 1) if is_maxneg else nil
 }
 
-@(private, require_results)
-count_only_numeric_characters :: proc(input: string, radix := 10) -> int {
-    count := 0
-    for char in input {
-        _, ok := get_digit(char, radix)
-        if ok {
-            count += 1
-        }
-    }
-    return count
-}
-
 /* 
 Assumes `input` represents a base-10 number, for simplicity.
 
@@ -223,10 +231,6 @@ May error out, in which case handling it is the caller's responsibility.
  */
 bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Error {
     input, radix := input, radix
-
-    log.info("===new call===")
-    defer log.info("===end call===")
-    
     sign := Sign.Positive
     prefix_loop: for len(input) > 1 {
         switch input[0] {
@@ -235,9 +239,9 @@ bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Err
         case '0':
             if radix == 0 {
                 ok: bool
-                input, radix, ok = detect_radix(input)
+                input, radix, ok = detect_number_string_radix(input)
                 if !ok {
-                    log.warnf("Invalid base prefix in '%s'", input)
+                    log.errorf("Invalid base prefix in '%s'", input)
                     return .Invalid_Radix
                 }
                 if radix != 10 {
@@ -266,19 +270,15 @@ bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Err
         digits[0] := 456789780  (10^9)^0 place
         digits[1] := 123        (10^9)^1 place
      */
-    ndigits := count_only_numeric_characters(input, radix)
+    ndigits := count_numeric_chars_only(input, radix)
     nwidth  := internal_get_block_width(radix)
     nblocks := ndigits / nwidth
     nextra  := ndigits % nwidth
     if nextra != 0 {
         nblocks += 1
     }
-    log.debugf("ndigits := %i", ndigits)
-    log.debugf("nwidth  := %i", nwidth)
-    log.debugf("nblocks := %i", nblocks)
-    log.debugf("nextra  := %i", nextra)
-    internal_resize(self, nblocks) or_return
     self.sign = sign
+    internal_resize(self, nblocks) or_return
     return internal_set_from_string(self, input, {
         radix = radix,
         width = nwidth,
@@ -320,12 +320,11 @@ bigint_trim :: proc(self: ^BigInt, minimize := false) -> Error {
 }
 
 bigint_print :: proc(self: BigInt, newline := true) {
-    context.allocator = context.temp_allocator
-    defer free_all(context.allocator) 
     defer if newline {
         fmt.println()
     }
     output, _ := bigint_to_string(self)
+    defer delete(output)
     fmt.print(output)
 }
 
@@ -520,8 +519,6 @@ Some key assumptions:
     4. x    + (-y) ==   x - y
  */
 bigint_add :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
-    x, y := x, y
-
     // Addition between 2 digits of the same base results in, at most, +1 digit.
     nlen := max(x.active, y.active) + 1
     internal_resize(dst, nlen) or_return
@@ -531,7 +528,7 @@ bigint_add :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
     /* 
     Assumptions 3 and 4.
     
-    Since `dst.sign` is the same as `x.sign`, we may need to negate it.
+    Since `dst.sign` is the same as `x.sign`, we may re-negate it.
 
     Account for:
         |x| < |y|:   1  + (-2) = -(2 - 1) = -1
@@ -542,7 +539,7 @@ bigint_add :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
     if x.sign != y.sign {
         if bigint_lt_abs(x, y) {
             bigint_neg(dst)
-            x, y = y, x
+            return internal_sub_unsigned(dst, y, x)
         }
         return internal_sub_unsigned(dst, x, y)
     }
@@ -560,8 +557,6 @@ Some key assumptions:
     4.   x  - (-y) ==   x + y
  */
 bigint_sub :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
-    x, y := x, y
-
     // No need for +1 since subtraction should never result in an extra digit.
     nlen := max(x.active, y.active)
     internal_resize(dst, nlen) or_return
@@ -595,9 +590,8 @@ bigint_sub :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
      */
     if bigint_lt_abs(x, y) {
         bigint_neg(dst)
-        x, y = y, x
+        return internal_sub_unsigned(dst, y, x)
     }
-
     return internal_sub_unsigned(dst, x, y)
 }
 

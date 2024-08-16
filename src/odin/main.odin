@@ -7,6 +7,13 @@ import "core:io"
 import "core:testing"
 import "core:log"
 
+stdin: io.Stream
+
+@(private="file", init)
+init_globals :: proc() {
+    stdin = os.stream_from_handle(os.stdin)
+}
+
 main :: proc() {
     // https://gist.github.com/karl-zylinski/4ccf438337123e7c8994df3b03604e33
     when ODIN_DEBUG {
@@ -14,131 +21,87 @@ main :: proc() {
         mem.tracking_allocator_init(&track, context.allocator)
         context.allocator = mem.tracking_allocator(&track)
         defer {
-            print_tracking_allocator(track)
+            print_tracking_allocator(track, "context.allocator")
             mem.tracking_allocator_destroy(&track)
         }
         
         // No file path and timestamp.
-        options: log.Options = {
-            .Level,
-            .Terminal_Color,
-            .Procedure
-        }
-        logger := log.create_console_logger(opt = options)
+        logger := log.create_console_logger(opt = {
+            .Level, .Terminal_Color, .Procedure
+        })
         context.logger = logger
         defer log.destroy_console_logger(logger)
     }
-    stdin := os.stream_from_handle(os.stdin)
 
-    x, y, dst: BigInt
-    bigint_init_multi(&x, &y, &dst)
-    defer {
-        bigint_destroy(&dst)
-        bigint_destroy(&y)
-        bigint_destroy(&x)
-    }
+    x, y, result: BigInt
+    bigint_init_multi(&x, &y, &result)
+    defer bigint_destroy_multi(&x, &y, &result)
 
+    saved_allocator := context.allocator
     input_loop: for {
-        defer free_all(context.temp_allocator)
+        context.allocator = context.temp_allocator
+        defer {
+            free_all(context.temp_allocator)
+            context.allocator = saved_allocator
+        }
 
-        fmt.print("Enter a value for 'x': ")
-        first := try_read_line(stdin, context.temp_allocator) or_break
-        fmt.print("Enter a value for 'y': ")
-        second := try_read_line(stdin, context.temp_allocator) or_break
-        
-        #partial switch bigint_set_from_string(&x, first, 0) {
-        case .Out_Of_Memory:
-            break input_loop
-        case .Invalid_Digit, .Invalid_Radix:
-            continue input_loop
+        switch get_string_and_set_bigint(&x, "x") {
+        case 2: break input_loop
+        case 1: continue input_loop
         }
-        #partial switch bigint_set_from_string(&y, second, 0) {
-        case .Out_Of_Memory:
-            break input_loop
-        case .Invalid_Digit, .Invalid_Radix:
-            continue input_loop
+
+        switch get_string_and_set_bigint(&y, "y") {
+        case 2: break input_loop
+        case 1: continue input_loop
         }
+        xstr := bigint_to_string(x) or_break
+        ystr := bigint_to_string(y) or_break
+
+        bigint_add(&result, x, y) or_break
+        sum := bigint_to_string(result) or_break
         
-        fmt.print("x, y := ")
-        bigint_print(x, newline = false)
-        fmt.print(", ")
-        bigint_print(y)
-        
-        bigint_add(&dst, x, y) or_break
-        print_equation(x, y, dst, '+')
-        
-        bigint_sub(&dst, x, y) or_break
-        print_equation(x, y, dst, '-')
+        bigint_sub(&result, x, y)
+        diff := bigint_to_string(result) or_break
+
+        print_equation(xstr, '+', ystr, sum)
+        print_equation(xstr, '-', ystr, diff)
     }
 }
 
 @(private="file")
-print_equation :: proc(x, y, dst: BigInt, op: rune) {
-    context.allocator = context.temp_allocator
-    defer free_all(context.allocator)
-    xstr, _ := bigint_to_string(x)
-    ystr, _ := bigint_to_string(y)
-    zstr, _ := bigint_to_string(dst)
-    fmt.printf("%s %c %s = %s\n", xstr, op, ystr, zstr, flush = false)
+print_equation :: proc(x: string, op: rune, y, z: string) {
+    fmt.printf("(x %c y = z): ", op)
+    fmt.printfln("%s %c %s = %s", x, op, y, z)    
 }
 
 @(private="file", require_results)
-try_read_line :: proc(stream: io.Stream, allocator := context.allocator) -> (string, bool) {
-    context.allocator = allocator
-    input, err := read_line(stream)
-    ok := err == nil
-    if !ok {
-        if err != .EOF {
-            log.errorf("read_line(): %v", err)
-        }
-    }
-    return input, ok
-}
+get_string_and_set_bigint :: proc(self: ^BigInt, name: string) -> int {
+    context.allocator = context.temp_allocator
 
-print_comparison :: proc(x, y: BigInt) {
-    result := bigint_cmp(x, y)
-    bigint_print(x, newline = false)
-    fmt.printf(" is %s ", Comparison_String[result])
-    bigint_print(y, newline = true)
-}
-
-// This is just here so I can conceptualize how to convert between bases.
-print_number :: proc(input: string, #any_int radix := 0) {
-    input, radix := input, radix
-    if radix == 0 {
-        ok: bool
-        prefix := string(input[:2]) if len(input) > 2 else input
-        input, radix, ok = detect_radix(input)
-        if !ok {
-            log.errorf("Unknown base prefix '%s'", prefix)
-            return
-        }
+    fmt.printf("Enter value for '%s': ", name)
+    line, oserr := read_line(stdin)
+    if oserr != nil {
+        return 2
     }
-    
-    // Dependent on `base`.
-    final_value, place_value := 0, 1
-    #reverse for char in input {
-        digit, ok := get_digit(char, radix)
-        if !ok {
-            log.errorf("Unknown base-%i digit '%c'", radix, char)
-            return
-        }
-        final_value += digit * place_value
-        place_value *= radix
+    #partial switch bigint_set_from_string(self, line, 0) {
+    case .Out_Of_Memory:
+        return 2
+    case .Invalid_Digit, .Invalid_Radix:
+        return 1
     }
-    fmt.println(final_value)
+    return 0
 }
 
 @(private="file", disabled=!ODIN_DEBUG)
-print_tracking_allocator :: proc(track: mem.Tracking_Allocator) {
+print_tracking_allocator :: proc(track: mem.Tracking_Allocator, name: string) {
     if count := len(track.allocation_map); count > 0 {
-        fmt.eprintfln("=== %v allocations not freed: ===", count)
+        fmt.eprintfln("=== '%s': %v allocations not freed: ===", name, count)
         for _, entry in track.allocation_map {
-            fmt.eprintfln("- %v bytes @ @v", entry.size, entry.location)
+            fmt.eprintfln("- %v bytes @ %v", entry.size, entry.location)
         }
     }
     if count := len(track.bad_free_array); count > 0 {
-        fmt.eprintfln("=== %v incorrect frees: ===", count)
+        fmt.eprintfln("=== '%s': %v incorrect frees: ===", name, count)
         for entry in track.bad_free_array {
             fmt.eprintfln("- %p @ %v", entry.memory, entry.location)
         }

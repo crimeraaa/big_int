@@ -21,6 +21,8 @@ internal_resize :: proc(self: ^BigInt, nlen: int) -> Error {
 
 /* 
 Assumes that we verified `radix` is already valid.
+
+Returns the number of `radix` digits that can likely fit in `DIGIT_BASE`.
  */
 internal_get_block_width :: proc(#any_int radix: int) -> int {
     switch radix {
@@ -39,24 +41,10 @@ Block_Info :: struct {
 }
 
 /* 
-TODO: Something is wrong when "0xfeedbeefc0ffee" is entered.
-
-Python:
-
-    0xfeedbeefc0ffee -> 71_756_048_406_478_830
-    
-Ours:
-    
-    0xfeedbeefc0ffee -> 1_044_187_009_496_574
-    
-Perhaps something is wrong with how we "split" non-base-10 digit strings.
+WARNING: This will break for non base-10 large number strings.
  */
 internal_set_from_string :: proc(self: ^BigInt, input: string, block: Block_Info) -> Error {
     block := block
-
-    log.info("===new call===")
-    defer log.info("===end call===")
-
     // Counters for base 10^9
     current_digit := WORD_TYPE(0)
     current_block := self.active - 1
@@ -66,23 +54,20 @@ internal_set_from_string :: proc(self: ^BigInt, input: string, block: Block_Info
         if char == ' ' || char == '_' || char == ',' {
             continue
         }
-        digit, ok := get_digit(char, block.radix)
+        digit, ok := convert_char_to_digit(char, block.radix)
         if !ok {
             log.errorf("Invalid base-%i digit '%c'", block.radix, char)
             return .Invalid_Digit
         }
-        prev_digit := current_digit
         current_digit *= WORD_TYPE(block.radix)
         current_digit += WORD_TYPE(digit)
         block.index -= 1
-        
-        log.debugf("block[%i]: %i -> %i", block.index, prev_digit, current_digit)
         
         /* 
         If we overflowed, we need to save the digit/s that caused us to overflow
         and remove them from the current digit.
          */
-        overflowed := current_digit >= DIGIT_BASE
+        overflowed := current_digit > DIGIT_MAX
         if overflowed {
             carry_digits = current_digit / DIGIT_BASE
             current_digit -= carry_digits * DIGIT_BASE
@@ -128,7 +113,7 @@ internal_add_unsigned :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> 
             sum += y.digits[index]
         }
         // Need to carry?
-        if sum >= DIGIT_BASE {
+        if sum > DIGIT_MAX {
             carry = 1
             sum  -= DIGIT_BASE
         } else {
@@ -140,7 +125,7 @@ internal_add_unsigned :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> 
 }
 
 /* 
-Set `dst` to be `x + digit`.
+Set `dst` to be `|x| + digit`.
 
 TODO: Handle signedness of `x`?
  */
@@ -164,7 +149,7 @@ internal_add_digit :: proc(dst: ^BigInt, x: BigInt, digit: DIGIT_TYPE, minimize 
 }
 
 /* 
-Set `dst` to be `|x - y|`, ignoring signedness. Assumes `x > y`.
+Set `dst` to be `|x| - |y|`, ignoring signedness. Assumes `x > y`.
 
 Determining the correct order of operands and signedness of the result is the
 responsibility of the caller.
@@ -178,12 +163,12 @@ internal_sub_unsigned :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> 
         
         This has the bonus effect of allowing `x` and/or `y` to alias `dst`!
          */
-        result: int = -1 if carry else 0
+        result := WORD_TYPE(-1 if carry else 0)
         if index < x.active {
-            result += int(x.digits[index])
+            result += WORD_TYPE(x.digits[index])
         }
         if index < y.active {
-            result -= int(y.digits[index])
+            result -= WORD_TYPE(y.digits[index])
         }
         // Need to carry?
         if result < 0 {
