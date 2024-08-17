@@ -30,5 +30,6 @@
         "xstddef": "cpp",
         "xtr1common": "cpp",
         "cstdarg": "c"
-    }
+    },
+    "python.analysis.typeCheckingMode": "basic"
 }

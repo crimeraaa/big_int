@@ -1,7 +1,3 @@
-DIGIT_BASE = 1_000_000_000
-DIGIT_MAX = DIGIT_BASE - 1
-DIGIT_WIDTH = len(str(DIGIT_MAX))
-
 def count_digits(value: int, radix: int = 10):
     """ 
     Count the number of `radix` digits needed to represent `value`.
