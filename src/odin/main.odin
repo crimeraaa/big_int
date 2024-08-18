@@ -26,7 +26,7 @@ main :: proc() {
         }
         
         // No file path and timestamp.
-        logger := log.create_console_logger(opt = {
+        logger := log.create_console_logger(opt = log.Options{
             .Level, .Terminal_Color, .Procedure
         })
         context.logger = logger
@@ -37,13 +37,10 @@ main :: proc() {
     bigint_init_multi(&x, &y, &result)
     defer bigint_destroy_multi(&x, &y, &result)
 
-    saved_allocator := context.allocator
     input_loop: for {
+        // When this scope is exited, `context.allocator` will be restored.
         context.allocator = context.temp_allocator
-        defer {
-            free_all(context.temp_allocator)
-            context.allocator = saved_allocator
-        }
+        defer free_all(context.temp_allocator)
 
         switch get_string_and_set_bigint(&x, "x") {
         case 2: break input_loop

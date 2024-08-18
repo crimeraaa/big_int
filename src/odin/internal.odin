@@ -42,6 +42,8 @@ Block_Info :: struct {
 
 /* 
 WARNING: This will break for non base-10 large number strings.
+
+TODO(2024-08-18): Perhaps re-implement in terms of high-level multiplication?
  */
 internal_set_from_string :: proc(self: ^BigInt, input: string, block: Block_Info) -> Error {
     block := block
@@ -94,15 +96,20 @@ internal_set_from_string :: proc(self: ^BigInt, input: string, block: Block_Info
     return nil
 }
 
+internal_add_unsigned :: proc {
+    internal_add_bigint_unsigned,
+    internal_add_digit_unsigned,
+}
+
 /* 
 Set `dst` to be `|x| + |y|`, ignoring signedness of either addend.
 
 Determining signedness of the result is the responsibility of the caller.
  */
-internal_add_unsigned :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> Error {
+internal_add_bigint_unsigned :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> Error {
     carry := DIGIT_TYPE(0)
     // Iterate from least significant to most significant.
-    for index in 0..<dst.active {
+    for &digit, index in dst.digits[:dst.active] {
         sum := carry
         
         // If index is out of range, it is implicitly 0 (i.e. add nothing).
@@ -119,21 +126,18 @@ internal_add_unsigned :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> 
         } else {
             carry = 0
         }
-        dst.digits[index] = sum
+        digit = sum
     }
     return bigint_trim(dst, minimize)
 }
 
 /* 
-Set `dst` to be `|x| + digit`.
-
-TODO: Handle signedness of `x`?
+Set `dst` to be `|x| + |y|`, ignoring the signedness of `x`.
  */
-internal_add_digit :: proc(dst: ^BigInt, x: BigInt, digit: DIGIT_TYPE, minimize := false) -> Error {
-    internal_resize(dst, x.active + 1) or_return
-    carry := digit
-    for index in 0..<x.active {
-        sum := x.digits[index] + carry
+internal_add_digit_unsigned :: proc(dst: ^BigInt, x: BigInt, y: DIGIT_TYPE, minimize := false) -> Error {
+    carry := y
+    for value, index in x.digits[:x.active] {
+        sum := value + carry
         if sum >= DIGIT_BASE {
             sum  -= DIGIT_BASE
             carry = 1
@@ -148,13 +152,18 @@ internal_add_digit :: proc(dst: ^BigInt, x: BigInt, digit: DIGIT_TYPE, minimize 
     return bigint_trim(dst, minimize)
 }
 
+internal_sub_unsigned :: proc {
+    internal_sub_bigint_unsigned,
+    internal_sub_digit_unsigned,
+}
+
 /* 
 Set `dst` to be `|x| - |y|`, ignoring signedness. Assumes `x > y`.
 
 Determining the correct order of operands and signedness of the result is the
 responsibility of the caller.
  */
-internal_sub_unsigned :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> Error {
+internal_sub_bigint_unsigned :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> Error {
     carry := false
     for index in 0..<dst.active {
         /* 
@@ -178,6 +187,31 @@ internal_sub_unsigned :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> 
             carry = false
         }
         dst.digits[index] = DIGIT_TYPE(result)
+    }
+    return bigint_trim(dst, minimize)
+}
+
+/*
+Set `dst` to be `|x| - |y|`, ignoring the signedness of `x`.
+ */
+internal_sub_digit_unsigned :: proc(dst: ^BigInt, x: BigInt, y: DIGIT_TYPE, minimize := false) -> Error {
+    carry := WORD_TYPE(y)
+    for index in 0..<dst.active {
+        diff := WORD_TYPE(0)
+        if index < x.active {
+            diff += WORD_TYPE(x.digits[index])
+        }
+        diff -= carry
+        if diff < 0 {
+            diff += DIGIT_BASE
+            carry = 1
+        } else {
+            carry = 0
+        }
+        dst.digits[index] = DIGIT_TYPE(diff)
+        if carry == 0 {
+            break
+        }
     }
     return bigint_trim(dst, minimize)
 }

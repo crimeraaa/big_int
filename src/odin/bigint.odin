@@ -20,9 +20,10 @@ Our internal representation of the result of any arithmetic between any 2
 E.g. if `DIGIT_BASE == 1_000_000_000`, this must be capable of representing the
 following:
 
-            0 - DIGIT_MAX = -999_999_999
-    DIGIT_MAX + DIGIT_MAX = 1_999_999_998
-    DIGIT_MAX * DIGIT_MAX = 999_999_998_000_000_001
+              0 - DIGIT_MAX  = -999_999_999
+      DIGIT_MAX + DIGIT_MAX  =  1_999_999_998
+      DIGIT_MAX * DIGIT_MAX  =  999_999_998_000_000_001
+    -(DIGIT_MAX * DIGIT_MAX) = -999_999_998_000_000_001
  */
 WORD_TYPE :: distinct i64
 
@@ -85,14 +86,16 @@ BigInt :: struct {
 
 // --- INITIALIZATION FUNCTIONS ------------------------------------------- {{{1
 
+
+/* 
+Important to call this so that `self.digits` has an allocator it can remember.
+ */
 bigint_init :: proc(self: ^BigInt, capacity := 0, allocator := context.allocator) -> Error {
     // make($T, len, allocator) -> mem.Allocator_Error
-    if capacity != 0 {
-        memerr: mem.Allocator_Error
-        self.digits, memerr = make([dynamic]DIGIT_TYPE, capacity, allocator)
-        if memerr != .None {
-            return Error(memerr)
-        }
+    memerr: mem.Allocator_Error
+    self.digits, memerr = make([dynamic]DIGIT_TYPE, capacity, allocator)
+    if memerr != .None {
+        return Error(memerr)
     }
     bigint_clear(self)
     return nil
@@ -148,7 +151,7 @@ bigint_is_zero :: #force_inline proc(self: BigInt) -> bool {
     return self.active == 0
 }
 
-bigint_is_negative :: #force_inline proc(self: BigInt) -> bool {
+bigint_is_neg :: #force_inline proc(self: BigInt) -> bool {
     return self.sign == .Negative
 }
 
@@ -167,7 +170,7 @@ bigint_to_string :: proc(self: BigInt, allocator := context.allocator) -> (out: 
         fmt.sbprint(&builder, '0')
     } else {
         // Most significant digit should have no padding.
-        if first := self.digits[self.active - 1]; bigint_is_negative(self) {
+        if first := self.digits[self.active - 1]; bigint_is_neg(self) {
             fmt.sbprintf(&builder, "-%i", first)
         } else {
             fmt.sbprint(&builder, first)
@@ -194,6 +197,9 @@ bigint_set :: proc {
 
 bigint_set_zero :: bigint_clear
 
+/* 
+TODO(2024-08-17): Implement as parapoly (generic) function where `value` is `$T`
+ */
 bigint_set_from_integer :: proc(self: ^BigInt, value: int) -> Error {
     if value == 0 {
         bigint_clear(self)
@@ -221,7 +227,7 @@ bigint_set_from_integer :: proc(self: ^BigInt, value: int) -> Error {
     /*
     TODO: Implement in terms of sub, not add.
     */
-    return internal_add_digit(self, self^, 1) if is_maxneg else nil
+    return internal_add_digit_unsigned(self, self^, 1) if is_maxneg else nil
 }
 
 /* 
@@ -279,7 +285,7 @@ bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Err
     }
     self.sign = sign
     internal_resize(self, nblocks) or_return
-    return internal_set_from_string(self, input, {
+    return internal_set_from_string(self, input, Block_Info{
         radix = radix,
         width = nwidth,
         index = nextra if nextra > 0 else nwidth,
@@ -289,7 +295,7 @@ bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Err
 // 1}}} ------------------------------------------------------------------------
 
 /* 
-Trim leading zeroes so that `bigint_print` slices the correct amount.
+Trim leading zeroes so that `bigint_to_string()` slices the correct amount.
 
 Note: Just like the builtin procedure `resize`, `shrink` does *not* take an
 `Allocator` because dynamic arrays already remember their allocators.
@@ -319,15 +325,6 @@ bigint_trim :: proc(self: ^BigInt, minimize := false) -> Error {
     return nil
 }
 
-bigint_print :: proc(self: BigInt, newline := true) {
-    defer if newline {
-        fmt.println()
-    }
-    output, _ := bigint_to_string(self)
-    defer delete(output)
-    fmt.print(output)
-}
-
 // --- "COMPARE" FUNCTIONS ------------------------------------------------ {{{1
 
 Comparison :: enum {
@@ -344,7 +341,7 @@ Comparison_String := [Comparison]string {
 
 @(require_results)
 bigint_cmp :: proc(x, y: BigInt) -> Comparison {
-    x_is_negative := bigint_is_negative(x)
+    x_is_negative := bigint_is_neg(x)
 
     /* 
     With different signs we can assume that a negative number is always
@@ -538,7 +535,8 @@ bigint_add :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
      */
     if x.sign != y.sign {
         if bigint_lt_abs(x, y) {
-            bigint_neg(dst)
+            // Ensure negation occurs AFTER subtraction finalized `dst`.
+            defer bigint_neg(dst)
             return internal_sub_unsigned(dst, y, x)
         }
         return internal_sub_unsigned(dst, x, y)
@@ -589,7 +587,8 @@ bigint_sub :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
         |x| > |y|: (-2) - (-1) = -(2 - 1) = -1
      */
     if bigint_lt_abs(x, y) {
-        bigint_neg(dst)
+        // Ensure negation occurs AFTER subtraction finalized `dst`.
+        defer bigint_neg(dst)
         return internal_sub_unsigned(dst, y, x)
     }
     return internal_sub_unsigned(dst, x, y)

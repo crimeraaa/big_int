@@ -16,6 +16,60 @@ PyLong_DECIMAL_BASE = 10 ** PyLong_DECIMAL_SHIFT
 PyLong_BASE = 1 << PyLong_SHIFT
 PyLong_MASK = PyLong_BASE - 1
 
+class PyLongObject(c.Structure):
+    """ 
+    Verify our implementation against CPython's.
+
+    See my notes in `python-int.h`.
+    """
+    _fields_ = [("ob_refcnt", c.c_ssize_t),
+                ("ob_type", c.c_void_p),
+                ("ob_size", c.c_ssize_t),
+                ("ob_digit", Digit)] # Actually a flexible array member
+    
+    def __repr__(self):
+        return (f"PyLongObject("
+                f"ob_refcnt = {self.ob_refcnt}, "
+                f"ob_type = {self.ob_type}, "
+                f"ob_size = {self.ob_size}, "
+                f"ob_digit = {self.ob_digit})")
+    
+
+    def make_digit_list(self) -> list[int]:
+        digits: list[int] = []
+        ptr_digit = self.get_digit_pointer()
+        for index in range(abs(self.ob_size)):
+            digits.append(ptr_digit[index])
+        return digits
+
+
+    def get_digit_pointer(self):
+        """ 
+        Get the address of `self.ob_digit`.
+        
+        WARNING:
+            Makes assumptions about the offset of `self.ob_digit`.
+            See the possible output of the following Python code:
+
+            ```py
+            >>> PyLongObject
+            <class '__main__.PyLongObject'>
+            >>> PyLongObject.ob_refcnt
+            <Field type=c_longlong, ofs=0, size=8>
+            >>> PyLongObject.ob_type  
+            <Field type=c_void_p, ofs=8, size=8>
+            >>> PyLongObject.ob_size
+            <Field type=c_longlong, ofs=16, size=8>
+            >>> PyLongObject.ob_digit
+            <Field type=c_ulong, ofs=24, size=4>
+            ```
+        """
+        addr_digit = c.byref(self, 24)
+        ptr_type = c.POINTER(Digit)
+        ptr_digit = c.cast(addr_digit, ptr_type)
+        return ptr_digit
+
+
 def split_int(value: int) -> list[int]:
     value = abs(value)
     digits: list[int] = []
@@ -36,65 +90,12 @@ def unsplit_int(digits: list[int]) -> int:
     return final_value
 
 
+def make_cpython_int(value: int|str) -> PyLongObject:
+    return PyLongObject.from_address(id(int(value)))
+
+
 def split_cpython_int(value: int|str) -> list[int]:
-    return PyLongObject(int(value)).make_digit_list()
+    return make_cpython_int(value).make_digit_list()
 
-
-def PyLongObject(value: int):
-    """ 
-    HACK: We create a new class definition for each and every call, because we
-    need to determine the flexible array member length each time.
-    
-    FIXME: Saving the result to a variable may not work properly, e.g:
-
-    ```py
-    >>> n = PyLongObject(1_234_567_890)
-    >>> n.make_digit_list()
-    [77_525_024, 32_765]
-    >>> PyLongObject(1_234_567_890).make_digit_list()
-    [160_826_066, 1]
-    >>> split_int(1_234_567_890)
-    [160_826_066, 1]
-    ```
-    
-    However, saving the integer to a variable beforehand seems to work:
-
-    ```py
-    >>> n_ = 1_234_567_890
-    >>> n = PyLongObject(n_)
-    >>> n.make_digit_list()
-    [160_826_066, 1]
-    ```
-    
-    This likely has to do with the `id()` call.
-    """
-    address = id(value)
-    n_digits = helper.count_digits(value, PyLong_BASE)
-    class _PyLongObject(c.Structure):
-        """ 
-        Verify our implementation against CPython's.
-
-        See my notes in `python-int.h`.
-        """
-        _fields_ = [("ob_refcnt", c.c_ssize_t),
-                    ("ob_type", c.c_void_p),
-                    ("ob_size", c.c_ssize_t),
-                    ("ob_digit", Digit * n_digits)]
-        
-        def __repr__(self):
-            return (f"PyLongObject("
-                    f"ob_refcnt = {self.ob_refcnt}, "
-                    f"ob_type = {self.ob_type}, "
-                    f"ob_size = {self.ob_size}, "
-                    f"ob_digit = {self.ob_digit})")
-        
-
-        def make_digit_list(self):
-            digits: list[int] = []
-            for digit in self.ob_digit:
-                digits.append(digit)
-            return digits
-
-    return _PyLongObject.from_address(address)
 
 TEST_VALUE = 123_456_789_101_112_131_415

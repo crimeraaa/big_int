@@ -1,8 +1,8 @@
 //+private
 package bigint
 
-import "core:unicode"
 import "base:intrinsics"
+import "core:unicode"
 
 /*
 Get the number of `radix` digits needed to represent `value`.
