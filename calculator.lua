@@ -44,8 +44,11 @@ local function compile(input)
     printfln("    = %s", parser:serialize_results())
 end
 
-printfln("To exit (Windows): Type <CTRL-Z> then hit <ENTER>.")
-printfln("To exit (Linux):   Type <CTRL-D>.")
+if dirsep == '\\' then
+    printfln("To exit: Type <CTRL-Z> then hit <ENTER>.")
+else
+    printfln("To exit: Type <CTRL-D>.")
+end
 
 ---@type string
 local PROGNAME = arg[0]:match("%w+%.lua$")

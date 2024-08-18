@@ -3,11 +3,27 @@ local Token  = require "src/lua/token"
 local TkType = Token.Type
 local format = string.format
 
+---@class Parser : Class
+---@field m_consumed  Token
+---@field m_lookahead Token
+---@field m_equation  NArray<string>
+---@field m_results   NArray<number>
+---
+---@overload fun(): Parser
+---@param self      Parser
+local Parser = Class(function(self)
+    self.m_consumed  = Token()
+    self.m_lookahead = Token()
+    self.m_equation  = {n = 0}
+    self.m_results   = {n = 0}
+end)
+
 ---@type fun(tktype: Token.Type): Parser.Rule
 local get_parserule
 
 ---@alias NArray<T> {[integer]: T, n: integer}
 
+---@param self Parser
 local function reset_tokens(self)
     self.m_consumed:copy_token(Token.EOF)
     self.m_lookahead:copy_token(Token.EOF)
@@ -355,21 +371,6 @@ local PARSERULES = {
 get_parserule = function(tktype)
     return PARSERULES[tktype]
 end
-
----@class Parser : Class
----@field m_consumed  Token
----@field m_lookahead Token
----@field m_equation  NArray<string>
----@field m_results   NArray<number>
----
----@overload fun(): Parser
----@param self      Parser
-local Parser = Class(function(self)
-    self.m_consumed  = Token()
-    self.m_lookahead = Token()
-    self.m_equation  = {n = 0}
-    self.m_results   = {n = 0}
-end)
 
 Parser.reset_tokens       = reset_tokens
 Parser.update_lookahead   = update_lookahead
