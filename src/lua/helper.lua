@@ -1,7 +1,9 @@
-local math = math
-
+---builtin
 local type        = type
 local tonumber    = tonumber
+
+---standard
+local format      = string.format
 local floor, ceil = math.floor, math.ceil
 
 ---@class Helper
@@ -101,16 +103,36 @@ local RADIX_PREFIX = {
 }
 
 ---@param line string
+---
+---@return string rest
+---@return 1|-1   sign
 function M.trim_string_leading_non_numeric(line)
     local count = 0
+    local sign  = 1
     for char in line:gmatch '.' do
-        if not (M.is_ascii_alnum(char) or char == '+' or char == '-') then
-            count = count + 1
-        else
+        if M.is_ascii_alnum(char) then
             break
         end
+        if char == '+' then
+            sign = 1
+        elseif char == '-' then
+            sign = (sign == 1) and -1 or 1
+        end
+        count = count + 1
     end
-    return line:sub(count + 1)
+    return line:sub(count + 1), sign
+end
+
+---@param line string
+function M.trim_string_trailing_non_numeric(line)
+    local count = 0
+    for char in line:reverse():gmatch '.' do
+        if M.is_ascii_alnum(char) then
+            break
+        end
+        count = count + 1
+    end
+    return line:sub(1, -(count + 1))
 end
 
 ---@param line string
@@ -145,6 +167,22 @@ function M.detect_string_radix(line)
         end
     end
     return rest, 10
+end
+
+---@param line   string
+---@param radix? integer
+function M.prepare_string_number(line, radix)
+    local rest, sign = M.trim_string_leading_non_numeric(line)
+    radix = radix or 0
+    if radix == 0 then
+        rest, radix = M.detect_string_radix(rest)
+        if not (rest and radix) then
+            error(format("Invalid number string '%s'", line))
+        end
+    end
+    rest = M.trim_string_leading_zeroes(rest)
+    rest = M.trim_string_trailing_non_numeric(rest)
+    return rest, radix, sign
 end
 
 return M

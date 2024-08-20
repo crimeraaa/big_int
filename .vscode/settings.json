@@ -31,5 +31,6 @@
         "xtr1common": "cpp",
         "cstdarg": "c"
     },
-    "python.analysis.typeCheckingMode": "basic"
+    "python.analysis.typeCheckingMode": "basic",
+    "Lua.workspace.checkThirdParty": false
 }

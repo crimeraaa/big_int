@@ -1,9 +1,11 @@
----@class Class
----@field is_instance fun(inst: Class): boolean
----@field __index     Class
-
+---builtin
 local type = type
 local getmetatable, setmetatable = getmetatable, setmetatable
+
+---@class Class
+---@field __index     Class
+---@field is_instance fun(inst: Class): boolean
+
 
 ---See: https://github.com/penguin0616/dst_gamescripts/blob/master/class.lua
 ---@param constructor? fun(inst: Class, ...)

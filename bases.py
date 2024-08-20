@@ -15,4 +15,3 @@ for radix, repr in DIGIT_WIDTH.items():
     # {var: >2} means right-align to 2 whitespaces ' '
     # If you replace ' ' with '0', you'll fill the alignment gaps with '0'.
     print(f"\tbase-{radix: <2} ({len(repr): >2} digits): {repr}")
-    pass
