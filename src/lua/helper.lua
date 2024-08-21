@@ -26,6 +26,17 @@ function M.is_ascii_alnum(char)
     return M.is_ascii_alpha(char) or M.is_ascii_digit(char)
 end
 
+--- Get only the integer part of `value`.
+---
+--- We truncate towards zero, because `floor` truncates towards negative
+--- infinity if `number` is negative.
+---@param number number
+function M.truncate_number(number)
+    return number >= 0 and floor(number) or ceil(number)
+end
+
+local truncate = M.truncate_number
+
 ---@param value  string|number
 ---@param radix? integer        Used only when `value` is a string.
 ---
@@ -35,9 +46,7 @@ function M.to_integer(value, radix)
     if not number then
         return nil
     else
-        -- Truncate towards zero, because `floor` truncates towards negative
-        -- infinity if `number` is negative.
-        return number >= 0 and floor(number) or ceil(number)
+        return truncate(number)
     end
 end
 
@@ -61,18 +70,21 @@ end
 function M.divmod(dividend, divisor)
     local quotient  = dividend / divisor
     local remainder = dividend % divisor
-    return quotient >= 0 and floor(quotient) or ceil(quotient), remainder
+    return truncate(quotient), truncate(remainder)
 end
 
----@param value integer
----@param radix integer
+---@param value  integer
+---@param radix? integer Default is `10`.
 ---
 ---@return integer count Number of `radix` digits in `value`.
 function M.count_integer_digits(value, radix)
-    -- Flooring negative quotient will otherwise round towards negative infinity
+    -- Flooring negative quotient otherwise rounds towards negative infinity,
+    -- and this algorithm is easier if `value` is assumed to be positive.
     if value < 0 then
         value = floor(-value)
     end
+    radix = radix or 10
+    assert(radix >= 2, "base must be 2 or greater")
     local count = 0
     while value ~= 0 do
         count = count + 1
@@ -95,11 +107,44 @@ function M.count_string_digits(line, radix)
     return count
 end
 
-local RADIX_PREFIX = {
+M.PREFIX_TO_RADIX = {
     ['b'] = 2,  ['B'] = 2,
     ['o'] = 8,  ['O'] = 8,
     ['d'] = 10, ['D'] = 10,
     ['x'] = 16, ['X'] = 16,
+}
+
+M.RADIX_TO_PREFIX = {
+    [2]  = 'b',
+    [8]  = 'o',
+    [16] = 'x',
+}
+
+---@note Base 10 is too difficult at the moment!
+M.RADIX_TO_BIN_DIGIT = {
+    [2] = {
+        [0]  = '0',      [1]  = '1',
+    },
+    [8] = {
+        [0]  = "000",   [1]  = "001",   [2]  = "010",   [3]  = "011",
+        [4]  = "100",   [5]  = "101",   [6]  = "110",   [7]  = "111",
+    },
+    [16] = {
+        [0]  = "0000",  [1]  = "0001",  [2]  = "0010",  [3]  = "0011",
+        [4]  = "0100",  [5]  = "0101",  [6]  = "0110",  [7]  = "0111",
+        [8]  = "1000",  [9]  = "1001",  [10] = "1010",  [11] = "1011",
+        [12] = "1100",  [13] = "1101",  [14] = "1110",  [15] = "1111",
+    },
+    [32] = {
+        [0]  = "00000", [1]  = "00001", [2]  = "00010", [3]  = "00011",
+        [4]  = "00100", [5]  = "00101", [6]  = "00110", [7]  = "00111",
+        [8]  = "01000", [9]  = "01001", [10] = "01010", [11] = "01011",
+        [12] = "01100", [13] = "01101", [14] = "01110", [15] = "01111",
+        [16] = "10000", [17] = "10001", [18] = "10010", [19] = "10011",
+        [20] = "10100", [21] = "10101", [22] = "10110", [23] = "10111",
+        [24] = "11000", [25] = "11001", [26] = "11010", [27] = "11011",
+        [28] = "11100", [29] = "11101", [30] = "11110", [31] = "11111",
+    }
 }
 
 ---@param line string
@@ -158,7 +203,7 @@ function M.detect_string_radix(line)
     if #rest >= 2 and rest:sub(1, 1) == '0' then
         local prefix = rest:sub(2, 2)
         if M.is_ascii_alpha(prefix) then
-            local radix = RADIX_PREFIX[prefix]
+            local radix = M.PREFIX_TO_RADIX[prefix]
             if radix then
                 return rest:sub(3), radix
             else
