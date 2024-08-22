@@ -88,10 +88,7 @@ local function to_bin_string(line, radix)
     if sign == -1 then
         static_buf:put('-')
     end
-    local prefix = H.RADIX_TO_PREFIX[radix]
-    if prefix then
-        static_buf:put('0', prefix)
-    end
+    static_buf:put("0b")
     local bin_digit = H.RADIX_TO_BIN_DIGIT[radix]
     if bin_digit then
         -- Iterate from most significant digit to least significant.

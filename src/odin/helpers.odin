@@ -4,50 +4,63 @@ package bigint
 import "base:intrinsics"
 import "core:unicode"
 
-/*
-Get the number of `radix` digits needed to represent `value`.
- */
-count_digits :: proc(value: $T, #any_int radix := 10) -> int
-where intrinsics.type_is_integer(T) {
-    value := value
-    // This is always the same no matter the base (except base 0).
-    if value == 0 {
-        return 1
-    }
-    count := 0
-    // We rely on the fact that integer division always truncates.
-    for value != 0 {
-        count += 1
-        value /= T(radix)
-    }
-    return count
+Number_String :: struct {
+    data:  string,
+    radix: int,
+    sign:  Sign,
 }
 
 /* 
-`rest` is a slice of `input` which excludes the prefix, if applicable. Otherwise,
-if there is no prefix, we assume we just need to return `input` as is.
+    Skips leading whitespaces and signs. If possible, tries to set signedness.
  */
-detect_number_string_radix :: proc(input: string) -> (rest: string, radix: int, ok: bool) {
+number_string_trim_leading :: proc(self: ^Number_String) {
+    skipped := 0
+    data := self.data
+    sign := Sign.Positive
+    for char in data {
+        if unicode.is_alpha(char) || unicode.is_digit(char) {
+            break
+        }
+        switch data[0] {
+        case '+': sign = .Positive
+        case '-': sign = .Negative if sign == .Positive else .Positive
+        }
+        skipped += 1
+    }
+    self.data = data[skipped:]
+    self.sign = sign
+}
+
+/* 
+    May mutate `self` by moving slicing `data` further.
+ */
+number_string_detect_radix :: proc(self: ^Number_String) -> (ok: bool) {
     // May have prefix AND some number of digits? e.g. "0x" alone is invalid.
+    input := self.data
     if len(input) > 2 && input[0] == '0' && unicode.is_alpha(rune(input[1])) {
+        radix := 0
         switch input[1] {
         case 'b', 'B': radix = 2
         case 'o', 'O': radix = 8
         case 'd', 'D': radix = 10
         case 'x', 'X': radix = 16
         case:
-            return input, 10, false
+            return false
         }
-        return input[2:], radix, true
+        self.data  = input[2:]
+        self.radix = radix
+        return true
     }
-    return input, 10, true
+    self.data  = input
+    self.radix = 10
+    return true
 }
 
-convert_char_to_digit :: proc(char: rune, radix: int) -> (digit: int, ok: bool) {
+char_to_digit :: proc(char: rune, radix: int) -> (digit: int, ok: bool) {
     switch char {
     case '0'..='9': digit = int(char - '0')
-    case 'a'..='f': digit = int(char - 'a' + 10)
-    case 'A'..='F': digit = int(char - 'A' + 10)
+    case 'a'..='z': digit = int(char - 'a' + 10)
+    case 'A'..='Z': digit = int(char - 'A' + 10)
     case:
         return 0, false
     }
@@ -61,11 +74,12 @@ convert_char_to_digit :: proc(char: rune, radix: int) -> (digit: int, ok: bool) 
 Assumptions:
     1. Base prefix, if any, was skipped.
     2. Leading 0's, if any, were skipped.
+    3. Radix has been properly determined already.
  */
-count_numeric_chars_only :: proc(input: string, radix: int) -> int {
+number_string_count_digits :: proc(self: Number_String) -> int {
     count := 0
-    for char in input {
-        _, ok := convert_char_to_digit(char, radix)
+    for char in self.data {
+        _, ok := char_to_digit(char, self.radix)
         if ok {
             count += 1
         }

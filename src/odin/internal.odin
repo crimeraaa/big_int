@@ -3,26 +3,34 @@ package bigint
 
 import "core:log"
 
-/*
-Wrapper to convert `mem.Allocator_Error` to `Error`.
+Block_Info :: struct {
+    radix: int, // What are we writing in terms of?
+    width: int, // How many `radix` digits can likely fit in a block?
+    index: int, // Where in the block are we currently at, in terms of `radix`?
+}
 
-Note: The builtin procedure `resize` does *not* take an `Allocator`, since
-dynamic arrays already remember their allocators.
+/*
+    Note: The builtin procedure `resize` does *not* take an `Allocator`, since
+    dynamic arrays already remember their allocators.
  */
-internal_resize :: proc(self: ^BigInt, nlen: int) -> Error {
-    memerr := resize(&self.digits, nlen)
-    if memerr != .None || len(self.digits) != nlen {
-        log.fatal("Failed to [re]allocate memory!")
-        return Error(memerr)
+internal_bigint_grow :: proc(self: ^BigInt, n_len: int) -> Error {
+    // The purpose of this function is only to grow, shrinking is a separate
+    // operation. However we do want to update the active count.
+    self.active = n_len
+    if n_len <= len(self.digits) {
+        return nil
     }
-    self.active = nlen
+    memerr := resize(&self.digits, n_len)
+    if memerr != .None || len(self.digits) != n_len {
+        log.fatal("Failed to [re]allocate memory!")
+        return memerr
+    }
     return nil
 }
 
 /* 
-Assumes that we verified `radix` is already valid.
-
-Returns the number of `radix` digits that can likely fit in `DIGIT_BASE`.
+    Assumes that we verified `radix` is already valid.
+    Returns the number of `radix` digits that can likely fit in `DIGIT_BASE`.
  */
 internal_get_block_width :: proc(#any_int radix: int) -> int {
     switch radix {
@@ -34,40 +42,33 @@ internal_get_block_width :: proc(#any_int radix: int) -> int {
     return DIGIT_WIDTH
 }
 
-Block_Info :: struct {
-    radix: int, // What are we writing in terms of?
-    width: int, // How many `radix` digits can likely fit in a block?
-    index: int, // Where in the block are we currently at, in terms of `radix`?
-}
-
 /* 
-WARNING: This will break for non base-10 large number strings.
-
-TODO(2024-08-18): Perhaps re-implement in terms of high-level multiplication?
+    WARNING: This will break for non base-10 large number strings.
+    TODO(2024-08-18): Perhaps re-implement in terms of high-level multiplication?
  */
-internal_set_from_string :: proc(self: ^BigInt, input: string, block: Block_Info) -> Error {
+internal_bigint_set_from_string :: proc(self: ^BigInt, input: string, block: Block_Info) -> Error {
     block := block
     // Counters for base 10^9
-    current_digit := WORD_TYPE(0)
+    current_digit := SWORD(0)
     current_block := self.active - 1
-    carry_digits  := WORD_TYPE(0)
+    carry_digits  := SWORD(0)
     
     for char in input {
         if char == ' ' || char == '_' || char == ',' {
             continue
         }
-        digit, ok := convert_char_to_digit(char, block.radix)
+        digit, ok := char_to_digit(char, block.radix)
         if !ok {
             log.errorf("Invalid base-%i digit '%c'", block.radix, char)
             return .Invalid_Digit
         }
-        current_digit *= WORD_TYPE(block.radix)
-        current_digit += WORD_TYPE(digit)
+        current_digit *= SWORD(block.radix)
+        current_digit += SWORD(digit)
         block.index -= 1
         
         /* 
-        If we overflowed, we need to save the digit/s that caused us to overflow
-        and remove them from the current digit.
+            If we overflowed, we need to save the digit/s that caused us to overflow
+            and remove them from the current digit.
          */
         overflowed := current_digit > DIGIT_MAX
         if overflowed {
@@ -80,7 +81,7 @@ internal_set_from_string :: proc(self: ^BigInt, input: string, block: Block_Info
         // "flush" the current block by writing it.
         if block.index == 0 || overflowed {
             log.debugf("[%i] := %i", current_block, current_digit)
-            self.digits[current_block] = DIGIT_TYPE(current_digit)
+            self.digits[current_block] = DIGIT(current_digit)
             current_block -= 1
             current_digit = carry_digits
             block.index = block.width
@@ -88,26 +89,28 @@ internal_set_from_string :: proc(self: ^BigInt, input: string, block: Block_Info
     }
     
     if current_digit != 0 {
-        internal_resize(self, self.active + 1) or_return
-        self.digits[self.active - 1] = DIGIT_TYPE(current_digit)
+        internal_bigint_grow(self, self.active + 1) or_return
+        self.digits[self.active - 1] = DIGIT(current_digit)
         log.debugf("[%i] := %i", self.active - 1, current_digit)
     }
     log.debug("result:", self.digits[:])
     return nil
 }
 
-internal_add_unsigned :: proc {
-    internal_add_bigint_unsigned,
-    internal_add_digit_unsigned,
+/* 
+    The `internal_add_*` functions do not take signedness into account.
+ */
+internal_add :: proc {
+    internal_bigint_add,
+    internal_bigint_add_digit,
 }
 
 /* 
-Set `dst` to be `|x| + |y|`, ignoring signedness of either addend.
-
-Determining signedness of the result is the responsibility of the caller.
+    Set `dst` to `|x| + |y|`, ignoring signedness of either addend.
+    Determining signedness of the result is the responsibility of the caller.
  */
-internal_add_bigint_unsigned :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> Error {
-    carry := DIGIT_TYPE(0)
+internal_bigint_add :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> Error {
+    carry := DIGIT(0)
     // Iterate from least significant to most significant.
     for &digit, index in dst.digits[:dst.active] {
         sum := carry
@@ -132,9 +135,9 @@ internal_add_bigint_unsigned :: proc(dst: ^BigInt, x, y: BigInt, minimize := fal
 }
 
 /* 
-Set `dst` to be `|x| + |y|`, ignoring the signedness of `x`.
+Set `dst` to `|x| + |y|`, ignoring the signedness of `x`.
  */
-internal_add_digit_unsigned :: proc(dst: ^BigInt, x: BigInt, y: DIGIT_TYPE, minimize := false) -> Error {
+internal_bigint_add_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT, minimize := false) -> Error {
     carry := y
     for value, index in x.digits[:x.active] {
         sum := value + carry
@@ -152,63 +155,68 @@ internal_add_digit_unsigned :: proc(dst: ^BigInt, x: BigInt, y: DIGIT_TYPE, mini
     return bigint_trim(dst, minimize)
 }
 
-internal_sub_unsigned :: proc {
-    internal_sub_bigint_unsigned,
-    internal_sub_digit_unsigned,
+/* 
+    Like their `internal_add_*` counterparts, these don't consider signedness.
+ */
+internal_sub :: proc {
+    internal_bigint_sub,
+    internal_bigint_sub_digit,
 }
 
 /* 
-Set `dst` to be `|x| - |y|`, ignoring signedness. Assumes `x > y`.
-
-Determining the correct order of operands and signedness of the result is the
-responsibility of the caller.
+    Assumes `|x| > |y|` and sets `dst` to `|x| - |y|`, ignoring signedness.
+    Determining the correct order of operands and signedness of the result is the
+    responsibility of the caller.
  */
-internal_sub_bigint_unsigned :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> Error {
-    carry := false
+internal_bigint_sub :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> Error {
+    carry := SWORD(0)
     for index in 0..<dst.active {
         /* 
-        Instead of mutating `x` by subtracting 1 from `x.digits[index + 1]`, we
-        can just keep track of when we carried/borrowed.
-        
-        This has the bonus effect of allowing `x` and/or `y` to alias `dst`!
+            Instead of mutating `x` by subtracting 1 from `x.digits[index + 1]`,
+            we can just keep track of when we carried/borrowed.
+            
+            This has the bonus effect of allowing `x` and/or `y` to alias `dst`!
          */
-        result := WORD_TYPE(-1 if carry else 0)
+        diff := -carry
         if index < x.active {
-            result += WORD_TYPE(x.digits[index])
+            diff += SWORD(x.digits[index])
         }
         if index < y.active {
-            result -= WORD_TYPE(y.digits[index])
+            diff -= SWORD(y.digits[index])
         }
         // Need to carry?
-        if result < 0 {
-            carry = true
-            result += DIGIT_BASE
-        } else {
-            carry = false
-        }
-        dst.digits[index] = DIGIT_TYPE(result)
-    }
-    return bigint_trim(dst, minimize)
-}
-
-/*
-Set `dst` to be `|x| - |y|`, ignoring the signedness of `x`.
- */
-internal_sub_digit_unsigned :: proc(dst: ^BigInt, x: BigInt, y: DIGIT_TYPE, minimize := false) -> Error {
-    carry := WORD_TYPE(y)
-    for index in 0..<dst.active {
-        diff := WORD_TYPE(0)
-        if index < x.active {
-            diff += WORD_TYPE(x.digits[index])
-        }
-        diff -= carry
         if diff < 0 {
             diff += DIGIT_BASE
             carry = 1
         } else {
             carry = 0
         }
-        dst.digits[index] = DIGIT_TYPE(diff)
+        dst.digits[index] = DIGIT(diff)
+    }
+    return bigint_trim(dst, minimize)
+}
+
+/*
+    Set `dst` to `|x| - |y|`, ignoring signedness of `x`.
+ */
+internal_bigint_sub_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT, minimize := false) -> Error {
+    carry := SWORD(y)
+    for index in 0..<dst.active {
+        diff := -carry
+        if index < x.active {
+            diff += SWORD(x.digits[index])
+        }
+        if diff < 0 {
+            diff += DIGIT_BASE
+            carry = 1
+        } else {
+            carry = 0
+        }
+        dst.digits[index] = DIGIT(diff)
+        /* 
+            We don't defer because if we deferred at the start, `defer` would
+            evaluate the value of `carry` immediately!
+        */
         if carry == 0 {
             break
         }

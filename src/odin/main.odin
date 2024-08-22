@@ -4,7 +4,6 @@ import "core:fmt"
 import "core:mem"
 import "core:os"
 import "core:io"
-import "core:testing"
 import "core:log"
 
 stdin: io.Stream
@@ -32,7 +31,7 @@ main :: proc() {
         context.logger = logger
         defer log.destroy_console_logger(logger)
     }
-
+    
     x, y, result: BigInt
     bigint_init_multi(&x, &y, &result)
     defer bigint_destroy_multi(&x, &y, &result)
@@ -43,25 +42,33 @@ main :: proc() {
         defer free_all(context.temp_allocator)
 
         switch get_string_and_set_bigint(&x, "x") {
-        case 2: break input_loop
+        case 2: break    input_loop
         case 1: continue input_loop
         }
 
         switch get_string_and_set_bigint(&y, "y") {
-        case 2: break input_loop
+        case 2: break    input_loop
         case 1: continue input_loop
         }
-        xstr := bigint_to_string(x) or_break
-        ystr := bigint_to_string(y) or_break
 
-        bigint_add(&result, x, y) or_break
-        sum := bigint_to_string(result) or_break
-        
+        xstr := bigint_to_string(x)         or_break
+        ystr := bigint_to_string(y)         or_break
+
+        bigint_add(&result, x, y)           or_break
+        bsum := bigint_to_string(result)    or_break
         bigint_sub(&result, x, y)
-        diff := bigint_to_string(result) or_break
+        bdiff := bigint_to_string(result)   or_break
 
-        print_equation(xstr, '+', ystr, sum)
-        print_equation(xstr, '-', ystr, diff)
+        bigint_add_digit(&result, x, 7)     or_break
+        dsum := bigint_to_string(result)    or_break
+        bigint_sub_digit(&result, x, 7)     or_break
+        ddiff := bigint_to_string(result)   or_break
+
+        print_equation(xstr, '+', ystr, bsum)
+        print_equation(xstr, '-', ystr, bdiff)
+        print_equation(xstr, '+', "7", dsum)
+        print_equation(xstr, '-', "7", ddiff)
+
     }
 }
 
@@ -74,13 +81,12 @@ print_equation :: proc(x: string, op: rune, y, z: string) {
 @(private="file", require_results)
 get_string_and_set_bigint :: proc(self: ^BigInt, name: string) -> int {
     context.allocator = context.temp_allocator
-
     fmt.printf("Enter value for '%s': ", name)
     line, oserr := read_line(stdin)
     if oserr != nil {
         return 2
     }
-    #partial switch bigint_set_from_string(self, line, 0) {
+    switch bigint_set_from_string(self, line, 0) {
     case .Out_Of_Memory:
         return 2
     case .Invalid_Digit, .Invalid_Radix:
