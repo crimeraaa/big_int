@@ -2,6 +2,7 @@
 package bigint
 
 import "core:log"
+import "core:math"
 
 Block_Info :: struct {
     radix: int, // What are we writing in terms of?
@@ -80,7 +81,6 @@ internal_bigint_set_from_string :: proc(self: ^BigInt, input: string, block: Blo
         
         // "flush" the current block by writing it.
         if block.index == 0 || overflowed {
-            log.debugf("[%i] := %i", current_block, current_digit)
             self.digits[current_block] = DIGIT(current_digit)
             current_block -= 1
             current_digit = carry_digits
@@ -91,11 +91,28 @@ internal_bigint_set_from_string :: proc(self: ^BigInt, input: string, block: Blo
     if current_digit != 0 {
         internal_bigint_grow(self, self.active + 1) or_return
         self.digits[self.active - 1] = DIGIT(current_digit)
-        log.debugf("[%i] := %i", self.active - 1, current_digit)
     }
-    log.debug("result:", self.digits[:])
     return nil
 }
+
+internal_bigint_set_from_string_slow :: proc(self: ^BigInt, line: Number_String) -> Error {
+    for char in line.data {
+        if char == ' ' || char == '_' || char == ',' {
+            continue
+        }
+        digit, ok := char_to_digit(char, line.radix)
+        if !ok {
+            log.errorf("Invalid base-%i digit '%c'", line.radix, char)
+            return .Invalid_Digit
+        }
+        bigint_mul_digit(self, self^, DIGIT(line.radix)) or_return
+        bigint_add_digit(self, self^, DIGIT(digit))      or_return
+    }
+    log.debug("self.digits", self.digits[:])
+    return nil
+}
+
+///--- ARITHMETIC --------------------------------------------------------- {{{1
 
 /* 
     The `internal_add_*` functions do not take signedness into account.
@@ -109,7 +126,7 @@ internal_add :: proc {
     Set `dst` to `|x| + |y|`, ignoring signedness of either addend.
     Determining signedness of the result is the responsibility of the caller.
  */
-internal_bigint_add :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> Error {
+internal_bigint_add :: proc(dst: ^BigInt, x, y: BigInt) {
     carry := DIGIT(0)
     // Iterate from least significant to most significant.
     for &digit, index in dst.digits[:dst.active] {
@@ -131,13 +148,12 @@ internal_bigint_add :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> Er
         }
         digit = sum
     }
-    return bigint_trim(dst, minimize)
 }
 
 /* 
-Set `dst` to `|x| + |y|`, ignoring the signedness of `x`.
+    Set `dst` to `|x| + |y|`, ignoring the signedness of `x`.
  */
-internal_bigint_add_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT, minimize := false) -> Error {
+internal_bigint_add_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) {
     carry := y
     for value, index in x.digits[:x.active] {
         sum := value + carry
@@ -152,7 +168,6 @@ internal_bigint_add_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT, minimize :=
             break
         }
     }
-    return bigint_trim(dst, minimize)
 }
 
 /* 
@@ -168,7 +183,7 @@ internal_sub :: proc {
     Determining the correct order of operands and signedness of the result is the
     responsibility of the caller.
  */
-internal_bigint_sub :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> Error {
+internal_bigint_sub :: proc(dst: ^BigInt, x, y: BigInt) {
     carry := SWORD(0)
     for index in 0..<dst.active {
         /* 
@@ -193,13 +208,12 @@ internal_bigint_sub :: proc(dst: ^BigInt, x, y: BigInt, minimize := false) -> Er
         }
         dst.digits[index] = DIGIT(diff)
     }
-    return bigint_trim(dst, minimize)
 }
 
 /*
     Set `dst` to `|x| - |y|`, ignoring signedness of `x`.
  */
-internal_bigint_sub_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT, minimize := false) -> Error {
+internal_bigint_sub_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) {
     carry := SWORD(y)
     for index in 0..<dst.active {
         diff := -carry
@@ -221,5 +235,134 @@ internal_bigint_sub_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT, minimize :=
             break
         }
     }
-    return bigint_trim(dst, minimize)
 }
+
+internal_mul :: proc {
+    internal_bigint_mul,
+    internal_bigint_mul_digit,
+}
+
+/* 
+    Assumes we already checked if either `x` or `y` are 0, we allocated enough
+    space for `dst` and determined the signedness of the result.
+
+    This will do long multiplication. We will iterate each digit of `x` and then
+    sub-iterate each digit of `y`. 
+    
+    Each time, we will split the digit-to-digit product into its the upper DIGIT
+    portion and lower DIGIT portion.
+
+    Example in base-10:
+    
+           9
+        *  7
+        = 63
+
+        upper = 6
+        lower = 3
+    
+    Example in base-1_000_000_000:
+
+                      999_999_999
+        *             999_999_999
+        = 999_999_998_000_000_001
+
+        upper = 999_999_998
+        lower = 000_000_001
+    
+*/
+internal_bigint_mul :: proc(dst: ^BigInt, x, y: BigInt) {
+    carry := DIGIT(0)
+    for x_digit, x_index in x.digits[:x.active] {
+        for y_digit, y_index in y.digits[:y.active] {
+            /* 
+                Note:
+                    We specifically need to cast BOTH operands, not just the,
+                    as if we do `UWORD(x * y)` then `x* y` may do DIGIT math
+                    and overflow before the conversion to `UWORD`.
+             */
+            upper, lower := internal_split_product(x_digit, y_digit)
+            
+            /* 
+                Add lower into `dst` at this particular offset, accounting for
+                overflow as in addition.
+                
+                Note:
+                    We may revisit this index multiple times hence we assume it
+                    started out as zero and got gradually updated.
+
+                    Remember that we are summing up the factors.
+             */
+            index := x_index + y_index
+            digit := dst.digits[index]
+            if digit += carry + lower; digit > DIGIT_MAX {
+                digit -= DIGIT_BASE
+                carry = 1
+            } else {
+                carry = 0
+            }
+            dst.digits[index] = digit
+            
+            // No need to check, may be zero anyway
+            carry += upper
+        }
+        
+        /*
+            Deal with leftover carry by assigning to the tail position for this
+            particular run.
+
+            Maximum index is (x.active + y.active) - 1 so we assume this is safe.
+        */
+        if carry != 0 {
+            dst.digits[x_index + y.active] = carry
+        }
+    }
+}
+
+internal_bigint_mul_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) {
+    carry := y
+    for x_digit, x_index in x.digits[:x.active] {
+        upper, lower := internal_split_product(x_digit, carry)
+        digit        := lower
+        log.debug(upper, ',', lower, ":=", x_digit, '*', carry)
+        if digit > DIGIT_MAX {
+            digit -= DIGIT_BASE
+            carry = 1
+        } else {
+            carry = 0
+        }
+        dst.digits[x_index] = digit
+        // Might need to keep going
+        if carry += upper; carry == 0 {
+            break
+        }
+    }
+    // `x.active` cannot be 0 here, should have checked before calling this.
+    if carry != 0 {
+        dst.digits[dst.active - 1] = carry
+    }
+}
+
+/* 
+    `DIGIT` to `DIGIT` multiplication most likely needs `UWORD` to act as an
+    intermediate value capable of holding the product.
+ */
+internal_split_product :: proc(x, y: DIGIT) -> (upper: DIGIT, lower: DIGIT) {
+    quot, rem   := math.divmod(UWORD(x) * UWORD(y), UWORD(DIGIT_BASE))
+    upper, lower = DIGIT(quot), DIGIT(rem)
+    return upper, lower
+}
+
+internal_count_trailing_zeroes :: proc(self: BigInt) -> int {
+    count := 0
+    #reverse for digit in self.digits[:] {
+        if digit == 0 {
+            count += 1
+        } else {
+            break
+        }
+    }
+    return count
+}
+
+///--- 1}}} --------------------------------------------------------------------

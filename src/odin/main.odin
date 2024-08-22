@@ -51,24 +51,31 @@ main :: proc() {
         case 1: continue input_loop
         }
 
-        xstr := bigint_to_string(x)         or_break
-        ystr := bigint_to_string(y)         or_break
+        xstr  := bigint_to_string(x)        or_break
+        ystr  := bigint_to_string(y)        or_break
 
         bigint_add(&result, x, y)           or_break
-        bsum := bigint_to_string(result)    or_break
-        bigint_sub(&result, x, y)
+        bsum  := bigint_to_string(result)   or_break
+
+        bigint_sub(&result, x, y)           or_break
         bdiff := bigint_to_string(result)   or_break
+
+        bigint_mul(&result, x, y)           or_break
+        bprod := bigint_to_string(result)   or_break
 
         bigint_add_digit(&result, x, 7)     or_break
         dsum := bigint_to_string(result)    or_break
         bigint_sub_digit(&result, x, 7)     or_break
         ddiff := bigint_to_string(result)   or_break
+        bigint_mul_digit(&result, x, 999_999_999)     or_break
+        dprod := bigint_to_string(result)   or_break
 
         print_equation(xstr, '+', ystr, bsum)
         print_equation(xstr, '-', ystr, bdiff)
+        print_equation(xstr, '*', ystr, bprod)
         print_equation(xstr, '+', "7", dsum)
         print_equation(xstr, '-', "7", ddiff)
-
+        print_equation(xstr, '*', "999_999_999", dprod)
     }
 }
 

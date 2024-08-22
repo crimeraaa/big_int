@@ -110,6 +110,36 @@ bigint_is_neg :: #force_inline proc(self: BigInt) -> bool {
 }
 
 /* 
+    Trim leading zeroes so that `bigint_to_string()` slices the correct amount.
+
+    Note: Just like the builtin procedure `resize`, `shrink` does *not* take an
+    `Allocator` because dynamic arrays already remember their allocators.
+ */
+bigint_trim :: proc(self: ^BigInt, minimize := false) -> Error {
+    count := 0
+    #reverse for digit in self.digits[:self.active] {
+        if digit == 0 {
+            count += 1
+        } else {
+            break
+        }
+    }
+    // We turned into zero?
+    if self.active -= count; self.active == 0 {
+        self.sign = .Positive
+    }
+    /* 
+    See: https://pkg.odin-lang.org/base/runtime/#shrink_dynamic_array
+     */
+    if minimize {
+        if _, memerr := shrink(&self.digits, self.active); memerr != nil {
+            log.fatal("Failed to shrink memory usage!")
+            return memerr
+        }
+    }
+    return nil
+}
+/* 
     Since `strings.Builder` just wraps `[dynamic]u8`, we can leave freeing it to
     be the caller's responsibility.
  */
@@ -160,7 +190,11 @@ where intrinsics.type_is_integer(T) {
     }
     n_digits := math.count_digits_of_base(value, DIGIT_BASE)
     internal_bigint_grow(self, n_digits) or_return
-    self.sign = .Positive if value >= 0 else .Negative
+    when intrinsics.type_is_unsigned(T) {
+        self.sign = .Positive
+    } else {
+        self.sign = .Positive if value >= 0 else .Negative
+    }
     
     /* 
     Will getting the absolute value cause `rest` to overflow?
@@ -182,7 +216,10 @@ where intrinsics.type_is_integer(T) {
         self.digits[index] = DIGIT(digit)
         iter = rest
     }
-    return internal_add(self, self^, 1) if is_maximally_negative else nil
+    if is_maximally_negative {
+        internal_add(self, self^, 1)
+    }
+    return bigint_trim(self)
 }
 
 /* 
@@ -197,6 +234,9 @@ bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Err
         sign  = .Positive
     }
     number_string_trim_leading(&line)
+    number_string_trim_trailing(&line)
+    // Set this AFTER the string has been set.
+    defer self.sign = line.sign 
     if line.radix == 0 {
         ok := number_string_detect_radix(&line)
         if !ok {
@@ -212,63 +252,19 @@ bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Err
         return nil
     }
     
-    /* 
-        e.g. "123456789780" has 12 characters, which is 12 base-10 characters.
-        However, for base 10^9 we need to divide the length by 9.
-        
-        NOTE:
-
-            digits[0] := 456789780  (10^9)^0 place
-            digits[1] := 123        (10^9)^1 place
-     */
-    ndigits := number_string_count_digits(line)
-    nwidth  := internal_get_block_width(line.radix)
-    nblocks := ndigits / nwidth
-    nextra  := ndigits % nwidth
-    if nextra != 0 {
-        nblocks += 1
+    n_digits          := number_string_count_digits(line)
+    n_width           := internal_get_block_width(line.radix)
+    n_blocks, n_extra := math.divmod(n_digits, n_width)
+    if n_extra != 0 {
+        n_blocks += 1
     }
-    self.sign = line.sign
-    internal_bigint_grow(self, nblocks) or_return
-    return internal_bigint_set_from_string(self, line.data, Block_Info{
-        radix = line.radix,
-        width = nwidth,
-        index = nextra if nextra > 0 else nwidth,
-    })
+    internal_bigint_grow(self, n_blocks) or_return
+    mem.zero_slice(self.digits[:])
+    return internal_bigint_set_from_string_slow(self, line)
 }
 
 // 1}}} ------------------------------------------------------------------------
 
-/* 
-    Trim leading zeroes so that `bigint_to_string()` slices the correct amount.
-
-    Note: Just like the builtin procedure `resize`, `shrink` does *not* take an
-    `Allocator` because dynamic arrays already remember their allocators.
- */
-bigint_trim :: proc(self: ^BigInt, minimize := false) -> Error {
-    count := 0
-    #reverse for digit in self.digits[:self.active] {
-        if digit == 0 {
-            count += 1
-        } else {
-            break
-        }
-    }
-    // We turned into zero?
-    if self.active -= count; self.active == 0 {
-        self.sign = .Positive
-    }
-    /* 
-    See: https://pkg.odin-lang.org/base/runtime/#shrink_dynamic_array
-     */
-    if minimize {
-        if _, memerr := shrink(&self.digits, self.active); memerr != nil {
-            log.fatal("Failed to shrink memory usage!")
-            return memerr
-        }
-    }
-    return nil
-}
 
 // --- "COMPARE" FUNCTIONS ------------------------------------------------ {{{1
 
@@ -505,6 +501,8 @@ bigint_neg :: proc(self: ^BigInt) {
     self.sign = .Positive if self.sign == .Negative else .Negative
 }
 
+// --- ADDITION ----------------------------------------------------------- {{{2
+
 add :: proc {
     bigint_add,
     bigint_add_digit,
@@ -532,7 +530,7 @@ bigint_add :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
             +x, +y:   1  +   2  = 3
             -x, -y: (-1) + (-2) = -3
      */
-    case x.sign == y.sign: return internal_add(dst, x, y)
+    case x.sign == y.sign: internal_add(dst, x, y)
 
     /* 
         Assumptions 3 and 4. Accounts for:
@@ -545,14 +543,15 @@ bigint_add :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
             defer to negate only after that point.
      */
     case lt_abs(x, y):     defer neg(dst)
-                           return internal_sub(dst, y, x)
+                           internal_sub(dst, y, x)
     /* 
         Assumptions 3 and 4. Accounts for:
             -x, +y, |x| > |y|:   2  + (-1) =  (2 - 1) =  1
             +x, -y, |x| > |y|: (-2) +   1  = -(2 - 1) = -1
      */
-    case:                  return internal_sub(dst, x, y)
+    case:                  internal_sub(dst, x, y)
     }
+    return bigint_trim(dst)
 }
 
 /* 
@@ -566,7 +565,7 @@ bigint_add_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) -> Error {
     dst.sign = x.sign
     
     switch {
-    case !is_neg(x):   return internal_add(dst, x, y)
+    case !is_neg(x):   internal_add(dst, x, y)
 
     /* 
         Accounts for:
@@ -576,10 +575,16 @@ bigint_add_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) -> Error {
         In the event of `|x| < y` and `x` is zero, -0 + y == y.
         This case will only pass if `x` has 0 or 1 active digits.
      */
-    case lt_abs(x, y): return set(dst, y) if is_zero(x) else set(dst, y - x.digits[0])
-    case:              return internal_sub(dst, x, y)
+    case lt_abs(x, y): x_digit := 0 if is_zero(x) else x.digits[0]
+                       set(dst, y - x_digit)
+    case:              internal_sub(dst, x, y)
     }
+    return bigint_trim(dst)
 }
+
+// 2}}} ------------------------------------------------------------------------
+
+// --- SUBTRACTION ------------------------------------------------------ {{{2
 
 sub :: proc {
     bigint_sub,
@@ -614,7 +619,7 @@ bigint_sub :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
             +x, -y, |x| > |y|:    2  - (-1) =  (2 + 1) =  3
             -x, +y, |x| > |y|:  (-2) -   1  = -(2 + 1) = -3
      */
-    case x.sign != y.sign: return internal_add(dst, x, y)
+    case x.sign != y.sign: internal_add(dst, x, y)
 
     /* 
         Assumptions 1 and 2. Accounts for:
@@ -625,15 +630,15 @@ bigint_sub :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
             We defer for the same reasons in `bigint_add()`.
      */
     case lt_abs(x, y):     defer neg(dst)
-                           return internal_sub(dst, y, x)
+                           internal_sub(dst, y, x)
     /* 
         Assumptions 1 and 2. Accounts for:
             +x, +y, |x| > |y|:   2  -   1  =  (2 - 1) =  1
             -x, -y, |x| > |y|: (-2) - (-1) = -(2 - 1) = -1
      */
-    case:                  return internal_sub(dst, x, y)
+    case:                  internal_sub(dst, x, y)
     }
-    
+    return bigint_trim(dst)
 }
 
 bigint_sub_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) -> Error {
@@ -647,7 +652,7 @@ bigint_sub_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) -> Error {
             -x, (|x| < y): -1 - 2 = -(1 + 2) = -3
             -x, (|x| > y): -2 - 1 = -(2 + 1) = -3
      */
-    case is_neg(x):     return internal_add(dst, x, y)
+    case is_neg(x):     internal_add(dst, x, y)
 
     /* 
         Accounts for:
@@ -657,14 +662,67 @@ bigint_sub_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) -> Error {
             We defer for the same reasons in `bigint_add()`.
      */
     case lt_abs(x, y): defer neg(dst)
-                       return set(dst, SWORD(y - x.digits[0]))
+                       z := DIGIT(0 if is_zero(x) else x.digits[0])
+                       set(dst, SWORD(y - z))
     /* 
         Accounts for:
             +x, (|x| > y)
      */
-    case:              return internal_sub(dst, x, y)
+    case:              internal_sub(dst, x, y)
     }
+    return bigint_trim(dst)
 }
 
+// 2}}} ------------------------------------------------------------------------
+
+// --- MULTIPLICATION ----------------------------------------------------- {{{2
+
+/* 
+TODO(2024-08-22): Allow for expected behavior even if `x` or `y` alias `dst`
+ */
+bigint_mul :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
+    if is_zero(x) || is_zero(y) {
+        set_zero(dst)
+        return nil
+    }
+    /*
+        Multiplication by any 2 base-N digits results in at most n + m digits.
+        e.g:
+                      999_999_999 :  9 base-10 digits
+        *             999_999_999 :  9 base-10 digits
+        = 999_999_998_000_000_001 : 18 base-10 digits
+        
+        The same principle can be applied to base-1_000_000_000, of course.
+    */
+    n_len := x.active + y.active
+    internal_bigint_grow(dst, n_len) or_return
+
+    /* 
+    Accounts for:
+
+          x  *   y  =  z
+        (-x) * (-y) =  z
+        (-x) *   y  = -z
+          x  * (-y) = -z
+     */
+    dst.sign = .Positive if x.sign == y.sign else .Negative
+    mem.zero_slice(dst.digits[:])
+    internal_mul(dst, x, y)
+    return bigint_trim(dst)
+}
+
+bigint_mul_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) -> Error {
+    if is_zero(x) || y == 0 {
+        set_zero(dst)
+        return nil
+    }
+    n_len := x.active + math.count_digits_of_base(y, DIGIT_BASE)
+    internal_bigint_grow(dst, n_len) or_return
+    dst.sign = x.sign
+    internal_mul(dst, x, y)
+    return bigint_trim(dst)
+}
+
+// 2}}} ------------------------------------------------------------------------
 
 // 1}}} ------------------------------------------------------------------------
