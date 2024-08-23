@@ -1,15 +1,12 @@
 # About
 
-This project is a simple implementation of big integers in C.
+This project is a simple implementation of big integers in various languages: C, Lua and Odin.
+
 It also includes a simple Arena allocator, for fun!
 
-## Note
-
-Currently much of my focus is on the Arena allocator.
-The C++ big int implementation is still there but it does not build.
-This is because I've removed some of the project-specific C++ headers.
-
 # Requirements
+
+## C
 
 1. Windows 10
     * Visual Studio 2022
@@ -37,20 +34,20 @@ This is because I've removed some of the project-specific C++ headers.
 
     * Not supported yet!
 
-## If you're using Visual Studio anyway, why not use NMake?
+### If you're using Visual Studio anyway, why not use NMake?
 
 Microsoft NMake is absolutely braindead!
 
-# Building
+## Building
 
-## Assumptions
+### Assumptions
 
 * Installation: Visual Studio Build Tools 2022
 * Architecture: AMD64
 
 You can adapt the instructions in the following section depending on your requirements.
 
-## Instructions
+### Instructions
 
 <!-- auto update lists: use all 1's, works for GitHub-flavored MD -->
 1. Run your desired developer environment for Visual Studio. You have 2 options:
@@ -103,3 +100,12 @@ You can adapt the instructions in the following section depending on your requir
 
     This is equivalent to `make debug`.
     You can run `make release` if you'd like optimizations and no debug information.
+
+## Lua
+
+This project uses LuaJIT and LuaJIT-specific extensions/modules.
+I originally targeted pure Lua 5.1 but that is no longer the case.
+
+## Odin
+
+You simply need the Odin compiler.

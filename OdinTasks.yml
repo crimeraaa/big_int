@@ -1,0 +1,63 @@
+version: '3'
+
+vars:
+  DEBUG_FLAGS: -debug
+  RELEASE_FLAGS: -o:size -vet
+
+tasks:
+  default:
+    desc: Convenience target that defers to build.
+    cmds:
+      - task: build
+    
+  build:
+    desc: Build the executable.
+    # Calls <root-Taskfile>:dirs
+    deps:
+      - task: :dirs
+    # This is spaghetti but it's the least worst way
+    vars:
+      FLAGS: '{{if eq .MODE "debug"}}
+        {{.DEBUG_FLAGS}}
+        {{else if eq .MODE "release"}}
+        {{.RELEASE_FLAGS}}
+        {{else}}
+        {{fail "MODE must be one of `debug release`"}}
+        {{end}}'
+    cmds:
+      - 'odin build {{.SRC}} {{.FLAGS}} -out:{{.OUT}}'
+    requires:
+      vars: [OUT]
+    generates:
+      - '{{.OUT}}'
+    sources:
+      - '{{.SRC}}/*.odin'
+
+  run:
+    desc: Build or rebuild then run.
+    cmds:
+      - task: build
+        vars: {
+          MODE: '{{.MODE}}'
+        }
+      - '{{.OUT}}'
+
+  build-*:
+    vars:
+      MODE: '{{index .MATCH 0}}'
+    desc: Sets MODE to 'debug' or 'release' then builds.
+    cmds:
+      - task: build
+        vars:
+          MODE: '{{.MODE}}'
+  
+  run-*:
+    vars:
+      MODE: '{{index .MATCH 0}}'
+    desc: Sets MODE to 'debug' or 'release' then builds and runs.
+    cmds:
+      - task: run
+        vars:
+          MODE: '{{.MODE}}'
+
+

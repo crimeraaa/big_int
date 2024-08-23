@@ -45,7 +45,7 @@ main :: proc() {
         case 2: break    input_loop
         case 1: continue input_loop
         }
-
+        
         switch get_string_and_set_bigint(&y, "y") {
         case 2: break    input_loop
         case 1: continue input_loop

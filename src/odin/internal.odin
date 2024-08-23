@@ -3,6 +3,7 @@ package bigint
 
 import "core:log"
 import "core:math"
+import "core:mem"
 
 Block_Info :: struct {
     radix: int, // What are we writing in terms of?
@@ -43,59 +44,9 @@ internal_get_block_width :: proc(#any_int radix: int) -> int {
     return DIGIT_WIDTH
 }
 
-/* 
-    WARNING: This will break for non base-10 large number strings.
-    TODO(2024-08-18): Perhaps re-implement in terms of high-level multiplication?
- */
-internal_bigint_set_from_string :: proc(self: ^BigInt, input: string, block: Block_Info) -> Error {
-    block := block
-    // Counters for base 10^9
-    current_digit := SWORD(0)
-    current_block := self.active - 1
-    carry_digits  := SWORD(0)
-    
-    for char in input {
-        if char == ' ' || char == '_' || char == ',' {
-            continue
-        }
-        digit, ok := char_to_digit(char, block.radix)
-        if !ok {
-            log.errorf("Invalid base-%i digit '%c'", block.radix, char)
-            return .Invalid_Digit
-        }
-        current_digit *= SWORD(block.radix)
-        current_digit += SWORD(digit)
-        block.index -= 1
-        
-        /* 
-            If we overflowed, we need to save the digit/s that caused us to overflow
-            and remove them from the current digit.
-         */
-        overflowed := current_digit > DIGIT_MAX
-        if overflowed {
-            carry_digits = current_digit / DIGIT_BASE
-            current_digit -= carry_digits * DIGIT_BASE
-        } else {
-            carry_digits = 0
-        }
-        
-        // "flush" the current block by writing it.
-        if block.index == 0 || overflowed {
-            self.digits[current_block] = DIGIT(current_digit)
-            current_block -= 1
-            current_digit = carry_digits
-            block.index = block.width
-        }
-    }
-    
-    if current_digit != 0 {
-        internal_bigint_grow(self, self.active + 1) or_return
-        self.digits[self.active - 1] = DIGIT(current_digit)
-    }
-    return nil
-}
-
-internal_bigint_set_from_string_slow :: proc(self: ^BigInt, line: Number_String) -> Error {
+internal_bigint_set_from_string :: proc(self: ^BigInt, line: Number_String) -> Error {
+    log.debug("before", self.digits[:])
+    defer log.debug("after", self.digits[:])
     for char in line.data {
         if char == ' ' || char == '_' || char == ',' {
             continue
@@ -105,11 +56,10 @@ internal_bigint_set_from_string_slow :: proc(self: ^BigInt, line: Number_String)
             log.errorf("Invalid base-%i digit '%c'", line.radix, char)
             return .Invalid_Digit
         }
-        bigint_mul_digit(self, self^, DIGIT(line.radix)) or_return
-        bigint_add_digit(self, self^, DIGIT(digit))      or_return
+        internal_mul(self, self^, DIGIT(line.radix))
+        internal_add(self, self^, DIGIT(digit))
     }
-    log.debug("self.digits", self.digits[:])
-    return nil
+    return bigint_trim(self)
 }
 
 ///--- ARITHMETIC --------------------------------------------------------- {{{1
@@ -167,6 +117,9 @@ internal_bigint_add_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) {
         if carry == 0 {
             break
         }
+    }
+    if carry != 0 {
+        dst.digits[dst.active - 1] = carry
     }
 }
 
@@ -275,12 +228,6 @@ internal_bigint_mul :: proc(dst: ^BigInt, x, y: BigInt) {
     carry := DIGIT(0)
     for x_digit, x_index in x.digits[:x.active] {
         for y_digit, y_index in y.digits[:y.active] {
-            /* 
-                Note:
-                    We specifically need to cast BOTH operands, not just the,
-                    as if we do `UWORD(x * y)` then `x* y` may do DIGIT math
-                    and overflow before the conversion to `UWORD`.
-             */
             upper, lower := internal_split_product(x_digit, y_digit)
             
             /* 
@@ -293,18 +240,19 @@ internal_bigint_mul :: proc(dst: ^BigInt, x, y: BigInt) {
 
                     Remember that we are summing up the factors.
              */
-            index := x_index + y_index
-            digit := dst.digits[index]
-            if digit += carry + lower; digit > DIGIT_MAX {
-                digit -= DIGIT_BASE
+            dst_index := x_index + y_index
+            dst_digit := dst.digits[dst_index]
+            if dst_digit += carry + lower; dst_digit > DIGIT_MAX {
+                dst_digit -= DIGIT_BASE
                 carry = 1
             } else {
                 carry = 0
             }
-            dst.digits[index] = digit
-            
             // No need to check, may be zero anyway
             carry += upper
+            log.debugf("digits[%i] = %i * %i = carry: %i, digit: %i",
+                       dst_index, x_digit, y_digit, carry, dst_digit)
+            dst.digits[dst_index] = dst_digit
         }
         
         /*
@@ -320,26 +268,22 @@ internal_bigint_mul :: proc(dst: ^BigInt, x, y: BigInt) {
 }
 
 internal_bigint_mul_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) {
-    carry := y
-    for x_digit, x_index in x.digits[:x.active] {
-        upper, lower := internal_split_product(x_digit, carry)
-        digit        := lower
-        log.debug(upper, ',', lower, ":=", x_digit, '*', carry)
+    carry, digit: DIGIT
+    next_index := 0
+    for x_digit, x_index in x.digits[:] {
+        upper, lower := internal_split_product(x_digit, y)
+        // Important to update `digit` BEFORE `carry`.
+        digit = lower + carry
+        carry = upper
         if digit > DIGIT_MAX {
             digit -= DIGIT_BASE
-            carry = 1
-        } else {
-            carry = 0
+            carry += 1
         }
         dst.digits[x_index] = digit
-        // Might need to keep going
-        if carry += upper; carry == 0 {
-            break
-        }
+        next_index = x_index + 1
     }
-    // `x.active` cannot be 0 here, should have checked before calling this.
     if carry != 0 {
-        dst.digits[dst.active - 1] = carry
+        dst.digits[next_index] = carry
     }
 }
 

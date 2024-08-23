@@ -1,0 +1,48 @@
+version: '3'
+
+vars:
+  HELP: |
+    Usage:
+      task <task> [MODE=<mode>]
+    MODE is one of:
+      debug release
+    MODE defaults to debug.
+
+env:
+  # Directories
+  SRC: src
+  OBJ: obj
+  BIN: bin
+  MODE: debug
+
+# https://taskfile.dev/usage/#including-other-taskfiles
+includes:
+  odin:
+    taskfile: OdinTasks.yml
+    vars:
+      SRC: '{{.SRC}}/odin/'
+      OUT: '{{.BIN}}/odin-out{{exeExt}}'
+
+# Note:
+#   Unlike GNU Make, we need to explicitly specify as default task when no
+#   label is specified.
+#
+# See:
+#   https://taskfile.dev/usage/#getting-started
+#   https://taskfile.dev/reference/templating/#built-in-functions
+tasks:
+  default:
+    cmds:
+      - task: help
+
+  help:
+    silent: true
+    cmds:
+      - |
+        printf '{{.HELP}}'
+        task --list
+  
+  dirs: mkdir -p {{.OBJ}} {{.BIN}}
+
+  cleanup: rm -rf {{.OBJ}} {{.BIN}}
+  

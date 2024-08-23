@@ -1,4 +1,47 @@
 BASE = 10
+MAX = BASE - 1
+
+def main():
+    while True:
+        try:
+            x_string = input("x: ")
+            y_string = input("y: ")
+        except EOFError:
+            break
+        
+        x_value  = int(x_string, 0)
+        y_value  = int(y_string, 0)
+        x_digits = isplit(x_value)
+        
+        try:
+            bigint_mul_digit(x_digits, y_value)
+        except ValueError as err:
+            print(err)
+            continue
+        print(f"{x_value} * {y_value} = {x_digits}")
+
+
+def bigint_mul_digit(x_digits: list[int], y: int):
+    carry = 0
+    if not (0 <= y and y < BASE):
+        raise ValueError(f"multiplier '{y}' is not a single base-{BASE} digit")
+    for index, value in enumerate(x_digits):
+        q, r = divmod(value * y, BASE)
+        print(f"{value} * {y} = (upper: {q}, lower: {r}), ", end="")
+        digit = r + carry
+        if digit >= BASE:
+            digit -= BASE
+            carry = 1
+        else:
+            carry = 0
+        x_digits[index] = digit
+        carry += q
+        print(f"x_digits[{index}] = (carry: {carry}, digit: {digit})")
+        
+    if carry != 0:
+        x_digits.append(carry)
+
+    
 
 def imul(a: int, b: int):
     a_digits = isplit(a, BASE)
@@ -33,6 +76,8 @@ def isplit(value: int, radix: int = 10) -> list[int]:
         iter = rest
     return digits
 
+if __name__ == "__main__":
+    main()
 """ 
 Let B = 10.
 

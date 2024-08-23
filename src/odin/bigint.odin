@@ -243,9 +243,6 @@ bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Err
             log.errorf("Invalid base prefix in '%s'", input)
             return .Invalid_Radix
         }
-        if line.radix != 10 {
-            log.warnf("Base-%i strings may not be decoded properly!", line.radix)
-        }
     }
     if len(line.data) == 0 {
         set_zero(self)
@@ -258,9 +255,9 @@ bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Err
     if n_extra != 0 {
         n_blocks += 1
     }
-    internal_bigint_grow(self, n_blocks) or_return
+    internal_bigint_grow(self, n_blocks + 1) or_return
     mem.zero_slice(self.digits[:])
-    return internal_bigint_set_from_string_slow(self, line)
+    return internal_bigint_set_from_string(self, line)
 }
 
 // 1}}} ------------------------------------------------------------------------
@@ -565,18 +562,15 @@ bigint_add_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) -> Error {
     dst.sign = x.sign
     
     switch {
+    case is_zero(x):   set(dst, y)
     case !is_neg(x):   internal_add(dst, x, y)
 
     /* 
         Accounts for:
             -x, +y, |x| < y : -1 + 2 =   2 - 1  =  1
             -x, +y, |x| > y : -2 + 1 = -(2 - 1) = -1
-            
-        In the event of `|x| < y` and `x` is zero, -0 + y == y.
-        This case will only pass if `x` has 0 or 1 active digits.
      */
-    case lt_abs(x, y): x_digit := 0 if is_zero(x) else x.digits[0]
-                       set(dst, y - x_digit)
+    case lt_abs(x, y): set(dst, y - x.digits[0])
     case:              internal_sub(dst, x, y)
     }
     return bigint_trim(dst)
@@ -694,7 +688,7 @@ bigint_mul :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
         
         The same principle can be applied to base-1_000_000_000, of course.
     */
-    n_len := x.active + y.active
+    n_len := x.active + y.active + 1
     internal_bigint_grow(dst, n_len) or_return
 
     /* 
@@ -716,7 +710,7 @@ bigint_mul_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) -> Error {
         set_zero(dst)
         return nil
     }
-    n_len := x.active + math.count_digits_of_base(y, DIGIT_BASE)
+    n_len := x.active + math.count_digits_of_base(y, DIGIT_BASE) + 1
     internal_bigint_grow(dst, n_len) or_return
     dst.sign = x.sign
     internal_mul(dst, x, y)
