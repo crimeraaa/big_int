@@ -19,9 +19,9 @@ Sign :: enum i8 {
 }
 
 /* 
-Must be a strict superset of `runtime.Allocation_Error`.
+    Must be a strict superset of `runtime.Allocation_Error`.
 
-See: https://pkg.odin-lang.org/base/runtime/#Allocator_Error
+    See: https://pkg.odin-lang.org/base/runtime/#Allocator_Error
  */
 Error :: union #shared_nil {
     mem.Allocator_Error,
@@ -197,11 +197,11 @@ where intrinsics.type_is_integer(T) {
     }
     
     /* 
-    Will getting the absolute value cause `rest` to overflow?
-    e.g. -(i8(-128)) will result in 0 because +128 does not fit in an i8.
-    So we add 1 to get -127 of which +127 does fit in an i8.
+        Will getting the absolute value cause `rest` to overflow?
+        e.g. -(i8(-128)) will result in 0 because +128 does not fit in an i8.
+        So we add 1 to get -127 of which +127 does fit in an i8.
 
-    Then, later on, we do an unsigned addition to turn -127 to -128.
+        Then, later on, we do an unsigned addition to turn -127 to -128.
     */
     is_maximally_negative := value == min(T)
     when !intrinsics.type_is_unsigned(T) {
@@ -280,24 +280,24 @@ bigint_cmp :: proc(x, y: BigInt) -> Comparison {
     x_is_negative := is_neg(x)
     switch {
     /* 
-    With different signs we can assume that a negative number is always
-    less than a positive one. Accounts for:
+        With different signs we can assume that a negative number is always
+        less than a positive one. Accounts for:
 
-        +x, -y, (x > y):   1  > (-2)
-        -x, +y, (x < y): (-1) <   2
-        +x, -y, (x > y):   2  > (-1)
-        -x, +y, (x < y): (-2) <   1
+            +x, -y, (x > y):   1  > (-2)
+            -x, +y, (x < y): (-1) <   2
+            +x, -y, (x > y):   2  > (-1)
+            -x, +y, (x < y): (-2) <   1
      */
     case x.sign != y.sign:     return .Less if x_is_negative else .Greater
     /* 
-    At this point we know that both numbers have the same sign. Meaning, if `x`
-    is negative, we can also assume that `y` is negative and vice-versa.
-    Accounts for:
+        At this point we know that both numbers have the same sign. Meaning, if `x`
+        is negative, we can also assume that `y` is negative and vice-versa.
+        Accounts for:
 
-        +x, +y, (x > y):   11  >    2
-        -x, -y, (x < y): (-11) <  (-2)
-        +x, +y, (x < y):   2   <   11
-        -x, -y, (x > y): (-2)  > (-11)
+            +x, +y, (x > y):   11  >    2
+            -x, -y, (x < y): (-11) <  (-2)
+            +x, +y, (x < y):   2   <   11
+            -x, -y, (x > y): (-2)  > (-11)
      */
     case x.active < y.active:  return .Greater if x_is_negative else .Less
     case x.active == y.active: break
@@ -305,13 +305,13 @@ bigint_cmp :: proc(x, y: BigInt) -> Comparison {
     }
 
     /* 
-    At this point we know both `x` and `y` have the same sign and the same
-    number of active digits. Accounts for:
+        At this point we know both `x` and `y` have the same sign and the same
+        number of active digits. Accounts for:
 
-          123  <   456
-        (-123) > (-456)
-          456  >   123
-        (-456) < (-123)
+              123  <   456
+            (-123) > (-456)
+              456  >   123
+            (-456) < (-123)
      */
     for xdigit, xindex in x.digits[:x.active] {
         ydigit := y.digits[xindex]
@@ -352,7 +352,7 @@ bigint_cmp_digit :: proc(x: BigInt, y: DIGIT) -> Comparison {
     }
     
     /* 
-    Unreachable.
+        Unreachable.
      */
     return .Equal
 }
@@ -402,7 +402,7 @@ cmp_abs :: proc {
 }
 
 /* 
-Compare the digit arrays without considering sign.
+    Compare the digit arrays without considering sign.
  */
 bigint_cmp_abs :: proc(x, y: BigInt) -> Comparison {
     switch {
@@ -411,12 +411,12 @@ bigint_cmp_abs :: proc(x, y: BigInt) -> Comparison {
     case x.active > y.active:  return .Greater
     }
 
-    for xdigit, xindex in x.digits[:x.active] {
-        ydigit := y.digits[xindex]
+    for x_digit, x_index in x.digits[:x.active] {
+        y_digit := y.digits[x_index]
         switch {
-        case xdigit == ydigit: continue
-        case xdigit < ydigit:  return .Less
-        case xdigit > ydigit:  return .Greater
+        case x_digit == y_digit: continue
+        case x_digit < y_digit:  return .Less
+        case x_digit > y_digit:  return .Greater
         }
     }
     return .Equal
@@ -433,6 +433,9 @@ bigint_cmp_abs_digit :: proc(x: BigInt, y: DIGIT) -> Comparison {
     case x.digits[0] == y:  return .Equal
     case x.digits[0] > y:   return .Greater
     }
+    /* 
+        Unreachable.
+     */
     return .Equal
 }
 
@@ -506,14 +509,14 @@ add :: proc {
 }
 
 /* 
-High-level integer addition.
+    High-level integer addition.
 
-Some key assumptions:
+    Some key assumptions:
 
-    1. x    +   y  ==   x + y
-    2. (-x) + (-y) == -(x + y)
-    3. (-x) +   y  ==   y - x  or  -(x - y)
-    4. x    + (-y) ==   x - y
+        1. x    +   y  ==   x + y
+        2. (-x) + (-y) == -(x + y)
+        3. (-x) +   y  ==   y - x  or  -(x - y)
+        4. x    + (-y) ==   x - y
  */
 bigint_add :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
     // Addition between 2 digits of the same base results in, at most, +1 digit.
@@ -552,9 +555,9 @@ bigint_add :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
 }
 
 /* 
-High-level integer addition so that `y` doesn't need to be stored in a `BigInt`.
+    High-level integer addition so `y` doesn't need to be stored in a `BigInt`.
 
-NOTE: Because `y` is a `DIGIT`, it is unsigned and thus never negative.
+    NOTE: Because `y` is a `DIGIT`, it is unsigned and thus never negative.
  */
 bigint_add_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) -> Error {
     n_len := max(x.active, math.count_digits_of_base(y, DIGIT_BASE)) + 1
@@ -586,14 +589,14 @@ sub :: proc {
 }
 
 /* 
-High-level integer subtraction.
+    High-level integer subtraction.
 
-Some key assumptions:
+    Some key assumptions:
 
-    1.   x  -   y  ==   x - y
-    2. (-x) - (-y) ==   y - x  or -(x - y)
-    3. (-x) -   y  == -(x + y)
-    4.   x  - (-y) ==   x + y
+        1.   x  -   y  ==   x - y
+        2. (-x) - (-y) ==   y - x  or -(x - y)
+        3. (-x) -   y  == -(x + y)
+        4.   x  - (-y) ==   x + y
  */
 bigint_sub :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
     // No need for +1 since subtraction should never result in an extra digit.
@@ -641,6 +644,7 @@ bigint_sub_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) -> Error {
     dst.sign = x.sign
     
     switch {
+    case is_zero(x):    set(dst, y)
     /* 
         Accounts for:
             -x, (|x| < y): -1 - 2 = -(1 + 2) = -3
@@ -656,8 +660,7 @@ bigint_sub_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) -> Error {
             We defer for the same reasons in `bigint_add()`.
      */
     case lt_abs(x, y): defer neg(dst)
-                       z := DIGIT(0 if is_zero(x) else x.digits[0])
-                       set(dst, SWORD(y - z))
+                       set(dst, SWORD(y - x.digits[0]))
     /* 
         Accounts for:
             +x, (|x| > y)
@@ -672,7 +675,7 @@ bigint_sub_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) -> Error {
 // --- MULTIPLICATION ----------------------------------------------------- {{{2
 
 /* 
-TODO(2024-08-22): Allow for expected behavior even if `x` or `y` alias `dst`
+    TODO(2024-08-22): Allow for expected behavior even if `x` or `y` alias `dst`
  */
 bigint_mul :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
     if is_zero(x) || is_zero(y) {

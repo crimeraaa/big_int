@@ -20,7 +20,7 @@ includes:
   odin:
     taskfile: OdinTasks.yml
     vars:
-      SRC: '{{.SRC}}/odin/'
+      SRC: '{{.SRC}}/odin'
       OUT: '{{.BIN}}/odin-out{{exeExt}}'
 
 # Note:

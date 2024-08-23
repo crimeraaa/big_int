@@ -5,6 +5,11 @@ import "core:log"
 import "core:math"
 import "core:mem"
 
+Indexed_Pair :: struct {
+    index: int,
+    digit: DIGIT,
+}
+
 /*
     Note: The builtin procedure `resize` does *not* take an `Allocator`, since
     dynamic arrays already remember their allocators.
@@ -83,8 +88,8 @@ internal_bigint_add :: proc(dst: ^BigInt, x, y: BigInt) {
         }
         // Need to carry?
         if sum > DIGIT_MAX {
-            carry = 1
             sum  -= DIGIT_BASE
+            carry = 1
         } else {
             carry = 0
         }
@@ -95,23 +100,23 @@ internal_bigint_add :: proc(dst: ^BigInt, x, y: BigInt) {
 /* 
     Set `dst` to `|x| + |y|`, ignoring the signedness of `x`.
  */
-internal_bigint_add_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) {
-    carry := y
-    for value, index in x.digits[:x.active] {
-        sum := value + carry
+internal_bigint_add_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT, start := 0) {
+    carry := Indexed_Pair{index = start, digit = y}
+    for &value, index in dst.digits[start:dst.active] {
+        sum := carry.digit
+        if index < x.active {
+            sum += x.digits[index]
+        }
+        carry.index = index + 1
+        carry.digit = 0
         if sum >= DIGIT_BASE {
             sum  -= DIGIT_BASE
-            carry = 1
-        } else {
-            carry = 0
+            carry.digit += 1
         }
-        dst.digits[index] = sum
-        if carry == 0 {
-            break
-        }
+        value = sum
     }
-    if carry != 0 {
-        dst.digits[dst.active - 1] = carry
+    if carry.digit != 0 {
+        dst.digits[carry.index] = carry.digit
     }
 }
 
@@ -158,9 +163,9 @@ internal_bigint_sub :: proc(dst: ^BigInt, x, y: BigInt) {
 /*
     Set `dst` to `|x| - |y|`, ignoring signedness of `x`.
  */
-internal_bigint_sub_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) {
+internal_bigint_sub_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT, start := 0) {
     carry := SWORD(y)
-    for index in 0..<dst.active {
+    for &value, index in dst.digits[start:dst.active] {
         diff := -carry
         if index < x.active {
             diff += SWORD(x.digits[index])
@@ -171,7 +176,7 @@ internal_bigint_sub_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) {
         } else {
             carry = 0
         }
-        dst.digits[index] = DIGIT(diff)
+        value = DIGIT(diff)
         /* 
             We don't defer because if we deferred at the start, `defer` would
             evaluate the value of `carry` immediately!
@@ -217,11 +222,11 @@ internal_mul :: proc {
     
 */
 internal_bigint_mul :: proc(dst: ^BigInt, x, y: BigInt) {
-    carry := DIGIT(0)
-    for x_digit, x_index in x.digits[:x.active] {
-        for y_digit, y_index in y.digits[:y.active] {
+    for y_digit, y_index in y.digits[:y.active] {
+        carry := Indexed_Pair{index = y_index + 1, digit = 0}
+        for x_digit, x_index in x.digits[:x.active] {
             upper, lower := internal_split_product(x_digit, y_digit)
-            
+            lower += carry.digit
             /* 
                 Add lower into `dst` at this particular offset, accounting for
                 overflow as in addition.
@@ -232,19 +237,13 @@ internal_bigint_mul :: proc(dst: ^BigInt, x, y: BigInt) {
 
                     Remember that we are summing up the factors.
              */
-            dst_index := x_index + y_index
-            dst_digit := dst.digits[dst_index]
-            if dst_digit += carry + lower; dst_digit > DIGIT_MAX {
-                dst_digit -= DIGIT_BASE
-                carry = 1
-            } else {
-                carry = 0
+            prod := Indexed_Pair{index = x_index + y_index, digit = lower}
+            carry.digit = upper
+            if prod.digit += dst.digits[prod.index]; prod.digit > DIGIT_MAX {
+                prod.digit  -= DIGIT_BASE
+                carry.digit += 1
             }
-            // No need to check, may be zero anyway
-            carry += upper
-            log.debugf("digits[%i] = %i * %i = carry: %i, digit: %i",
-                       dst_index, x_digit, y_digit, carry, dst_digit)
-            dst.digits[dst_index] = dst_digit
+            dst.digits[prod.index] = prod.digit
         }
         
         /*
@@ -253,28 +252,27 @@ internal_bigint_mul :: proc(dst: ^BigInt, x, y: BigInt) {
 
             Maximum index is (x.active + y.active) - 1 so we assume this is safe.
         */
-        if carry != 0 {
-            dst.digits[x_index + y.active] = carry
+        if carry.digit != 0 {
+            dst.digits[carry.index] = carry.digit
         }
     }
 }
 
-internal_bigint_mul_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) {
-    carry, digit: DIGIT
-    for x_digit, x_index in x.digits[:x.active] {
+internal_bigint_mul_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT, start := 0) {
+    carry := Indexed_Pair{index = start}
+    for x_digit, x_index in x.digits[start:x.active] {
         upper, lower := internal_split_product(x_digit, y)
-        digit = lower + carry
-        if digit > DIGIT_MAX {
-            digit -= DIGIT_BASE
-            carry = 1
-        } else {
-            carry = 0
+        lower += carry.digit
+        carry.index = x_index + 1
+        carry.digit = upper
+        if lower > DIGIT_MAX {
+            lower -= DIGIT_BASE
+            carry.digit += 1
         }
-        carry += upper
-        dst.digits[x_index] = digit
+        dst.digits[x_index] = lower
     }
-    if carry != 0 {
-        dst.digits[x.active - 1] = carry
+    if carry.digit != 0 {
+        dst.digits[carry.index] = carry.digit
     }
 }
 
@@ -286,18 +284,6 @@ internal_split_product :: proc(x, y: DIGIT) -> (upper: DIGIT, lower: DIGIT) {
     quot, rem   := math.divmod(UWORD(x) * UWORD(y), UWORD(DIGIT_BASE))
     upper, lower = DIGIT(quot), DIGIT(rem)
     return upper, lower
-}
-
-internal_count_trailing_zeroes :: proc(self: BigInt) -> int {
-    count := 0
-    #reverse for digit in self.digits[:] {
-        if digit == 0 {
-            count += 1
-        } else {
-            break
-        }
-    }
-    return count
 }
 
 ///--- 1}}} --------------------------------------------------------------------
