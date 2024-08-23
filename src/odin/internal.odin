@@ -5,12 +5,6 @@ import "core:log"
 import "core:math"
 import "core:mem"
 
-Block_Info :: struct {
-    radix: int, // What are we writing in terms of?
-    width: int, // How many `radix` digits can likely fit in a block?
-    index: int, // Where in the block are we currently at, in terms of `radix`?
-}
-
 /*
     Note: The builtin procedure `resize` does *not* take an `Allocator`, since
     dynamic arrays already remember their allocators.
@@ -45,8 +39,6 @@ internal_get_block_width :: proc(#any_int radix: int) -> int {
 }
 
 internal_bigint_set_from_string :: proc(self: ^BigInt, line: Number_String) -> Error {
-    log.debug("before", self.digits[:])
-    defer log.debug("after", self.digits[:])
     for char in line.data {
         if char == ' ' || char == '_' || char == ',' {
             continue
@@ -269,21 +261,20 @@ internal_bigint_mul :: proc(dst: ^BigInt, x, y: BigInt) {
 
 internal_bigint_mul_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) {
     carry, digit: DIGIT
-    next_index := 0
-    for x_digit, x_index in x.digits[:] {
+    for x_digit, x_index in x.digits[:x.active] {
         upper, lower := internal_split_product(x_digit, y)
-        // Important to update `digit` BEFORE `carry`.
         digit = lower + carry
-        carry = upper
         if digit > DIGIT_MAX {
             digit -= DIGIT_BASE
-            carry += 1
+            carry = 1
+        } else {
+            carry = 0
         }
+        carry += upper
         dst.digits[x_index] = digit
-        next_index = x_index + 1
     }
     if carry != 0 {
-        dst.digits[next_index] = carry
+        dst.digits[x.active - 1] = carry
     }
 }
 

@@ -9,19 +9,22 @@ def main():
         except EOFError:
             break
         
-        x_value  = int(x_string, 0)
-        y_value  = int(y_string, 0)
-        x_digits = isplit(x_value)
+        x_digits = int(x_string, 0)
+        y_digits = int(y_string, 0)
+        bigint_to_bigint_mul(x_digits, y_digits)
+        # x_value  = int(x_string, 0)
+        # y_value  = int(y_string, 0)
+        # x_digits = isplit(x_value)
         
-        try:
-            bigint_mul_digit(x_digits, y_value)
-        except ValueError as err:
-            print(err)
-            continue
-        print(f"{x_value} * {y_value} = {x_digits}")
+        # try:
+        #     bigint_to_digit_mul(x_digits, y_value)
+        # except ValueError as err:
+        #     print(err)
+        #     continue
+        # print(f"{x_value} * {y_value} = {x_digits}")
 
 
-def bigint_mul_digit(x_digits: list[int], y: int):
+def bigint_to_digit_mul(x_digits: list[int], y: int):
     carry = 0
     if not (0 <= y and y < BASE):
         raise ValueError(f"multiplier '{y}' is not a single base-{BASE} digit")
@@ -43,25 +46,17 @@ def bigint_mul_digit(x_digits: list[int], y: int):
 
     
 
-def imul(a: int, b: int):
+def bigint_to_bigint_mul(a: int, b: int):
     a_digits = isplit(a, BASE)
     b_digits = isplit(b, BASE)
-    print("a:", a_digits)
-    print("b:", b_digits)
+    print("a:", a_digits, "b:", b_digits)
     for b_index, b_digit in enumerate(b_digits):
-        form: list[str] = []
-        eq:   list[str] = []
+        print(f"b[{b_index}] = {b_digit}")
         for a_index, a_digit in enumerate(a_digits):
-            form.append(f"(a{a_index}b{b_index})*(B**{b_index})")
-            eq.append(f"({a_digit}*{b_digit})*({BASE}**{b_index})")
-            if a_index != len(a_digits) - 1:
-                form.append(" + ")
-                eq.append(" + ")
-            # print(f"a{a_index}b{b_index} = {a_digit}*{b_digit}", end=", ")
-        print(f"a*b{b_index}\t=", "".join(form))
-        print( "\t=", "".join(eq))
-        print(f"\t= {a}*{b_digit}")
-        print(f"\t= {a*b_digit} lshift {b_index}")
+            product = a_digit * b_digit
+            print(f"\ta[{a_index}] = {a_digit}; {a_digit} * {b_digit} = {product}")
+            # print(f"\ta[{a_index}]*b[{b_index}] = {product}")
+        print()
 
 
 def isplit(value: int, radix: int = 10) -> list[int]:
@@ -76,8 +71,11 @@ def isplit(value: int, radix: int = 10) -> list[int]:
         iter = rest
     return digits
 
+
 if __name__ == "__main__":
     main()
+
+
 """ 
 Let B = 10.
 

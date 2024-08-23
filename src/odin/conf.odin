@@ -47,22 +47,13 @@ DIGIT_WIDTH :: 9
 
 /* 
 `DIGIT_WIDTH_{BIN,OCT,HEX}`:
-    Number of base-N digits needed to represent `DIGIT_MAX`.
+    Number of base-N digits that, when all are set to N-1, can safely fit in their
+    base-DIGIT_BASE representation.
 
-Rationale, see Python output of the following:
-```py
->>> BASE = 1_000_000_000
->>> MAX = BASE - 1
->>> len(bin(MAX)) - 2 # WIDTH_BIN
-30
->>> len(oct(MAX)) - 2 # WIDTH_OCT
-10
->>> len(hex(MAX)) - 2 # WIDTH_HEX
-8
-```
+Rationale, see `bases.py`.
  */
-DIGIT_WIDTH_BIN :: 30
-DIGIT_WIDTH_OCT :: 10
-DIGIT_WIDTH_HEX :: 8
+DIGIT_WIDTH_BIN :: 29
+DIGIT_WIDTH_OCT :: 9
+DIGIT_WIDTH_HEX :: 7
 
-#assert(DIGIT_BASE < max(DIGIT))
+#assert(2 <= DIGIT_BASE && DIGIT_BASE < max(DIGIT))

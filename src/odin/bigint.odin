@@ -255,7 +255,7 @@ bigint_set_from_string :: proc(self: ^BigInt, input: string, radix := 10) -> Err
     if n_extra != 0 {
         n_blocks += 1
     }
-    internal_bigint_grow(self, n_blocks + 1) or_return
+    internal_bigint_grow(self, n_blocks) or_return
     mem.zero_slice(self.digits[:])
     return internal_bigint_set_from_string(self, line)
 }
@@ -710,7 +710,7 @@ bigint_mul_digit :: proc(dst: ^BigInt, x: BigInt, y: DIGIT) -> Error {
         set_zero(dst)
         return nil
     }
-    n_len := x.active + math.count_digits_of_base(y, DIGIT_BASE) + 1
+    n_len := x.active + math.count_digits_of_base(y, DIGIT_BASE)
     internal_bigint_grow(dst, n_len) or_return
     dst.sign = x.sign
     internal_mul(dst, x, y)
