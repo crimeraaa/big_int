@@ -53,8 +53,8 @@ number_string_trim_trailing :: proc(self: ^Number_String) {
 number_string_detect_radix :: proc(self: ^Number_String) -> (ok: bool) {
     // May have prefix AND some number of digits? e.g. "0x" alone is invalid.
     input := self.data
+    radix := 10
     if len(input) > 2 && input[0] == '0' && unicode.is_alpha(rune(input[1])) {
-        radix := 0
         switch input[1] {
         case 'b', 'B': radix = 2
         case 'o', 'O': radix = 8
@@ -63,12 +63,11 @@ number_string_detect_radix :: proc(self: ^Number_String) -> (ok: bool) {
         case:
             return false
         }
-        self.data  = input[2:]
-        self.radix = radix
-        return true
+        input = input[2:]
+        radix = radix
     }
     self.data  = input
-    self.radix = 10
+    self.radix = radix
     return true
 }
 
@@ -123,25 +122,37 @@ number_string_count_digits :: proc(self: Number_String) -> int {
 */
 read_line :: proc(stream: io.Stream, allocator := context.allocator) -> (out: string, err: os.Error) {
     context.allocator = allocator
-    buffer: [512]byte
-    builder := strings.builder_make() or_return
+    buf: [512]byte
+    bd := strings.builder_make() or_return
+
+    /* 
+        Remember that we are doing *buffered input*. So we read the input in
+        chunks.
+        
+        E.g. if you type "The quick brown fox jumps over the lazy dog", it
+        can be divided into (buf is 16 bytes for demonstration):
+
+        1. "The quick brown "
+        2. "fox jumps over t"
+        3. "he lazy dog\n"
+     */
     for {
-        n_read := io.read(stream, buffer[:]) or_return
-        write_buffer_until_done(&builder, buffer[:n_read]) or_break
+        n_read := io.read(stream, buf[:]) or_return
+        view   := buf[:n_read]
+        line   := strings.trim_right(string(view[:]), "\r\n")
+        strings.write_string(&bd, line)
+        /* 
+            If this is false, this indicates we likely didn't read newlines yet.
+            This is because stdin always requires you to press <ENTER> which
+            types a newline.
+
+            So we know that if we didn't read a newline, there's still more
+            stuff to be read. Otherwise, if we did read a newline, then they
+            would've been excluded in the result from `strings.trim_right()`.
+         */
+        if len(line) != n_read {
+            break
+        }
     }
-    return strings.to_string(builder), nil
-}
-
-
-/*
-    We return false when we're certain there's no more input needed.
-
-    Note:
-        Don't use `strings.trim_right_space()` as it's too broad.
-*/
-@(private="file", require_results)
-write_buffer_until_done :: proc(builder: ^strings.Builder, buffer: []byte) -> bool {
-    out := strings.trim_right(string(buffer[:]), "\r\n")
-    strings.write_string(builder, out)
-    return len(out) == len(buffer)
+    return strings.to_string(bd), nil
 }

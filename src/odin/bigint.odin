@@ -124,12 +124,14 @@ bigint_trim :: proc(self: ^BigInt, minimize := false) -> Error {
             break
         }
     }
-    // We turned into zero?
+    /* 
+        Did removing the count turn us into zero?
+     */
     if self.active -= count; self.active == 0 {
         self.sign = .Positive
     }
     /* 
-    See: https://pkg.odin-lang.org/base/runtime/#shrink_dynamic_array
+        See: https://pkg.odin-lang.org/base/runtime/#shrink_dynamic_array
      */
     if minimize {
         if _, memerr := shrink(&self.digits, self.active); memerr != nil {
@@ -145,24 +147,34 @@ bigint_trim :: proc(self: ^BigInt, minimize := false) -> Error {
  */
 bigint_to_string :: proc(self: BigInt, allocator := context.allocator) -> (out: string, err: Error) {
     context.allocator = allocator
-    builder := strings.builder_make_len(1 + self.active * DIGIT_WIDTH) or_return
+    /* 
+    Add 1 more for the '-' char, just in case.
+    */
+    n_cap := 1 + (self.active * DIGIT_WIDTH)
+    /* 
+        Although we reserve `n_cap`, bytes, we set the length to 0 so that we
+        append properly.
+     */
+    bd := strings.builder_make(len = 0, cap = n_cap) or_return
     if is_zero(self) {
-        fmt.sbprint(&builder, '0')
-    } else {
-        // Most significant digit should have no padding.
-        if first := self.digits[self.active - 1]; is_neg(self) {
-            fmt.sbprintf(&builder, "-%i", first)
-        } else {
-            fmt.sbprint(&builder, first)
-        }        
-        digits := self.digits[:self.active - 1]
-        #reverse for digit in digits {
-            // "%*spec" doesn't work anymore, need to do "%*[vararg-index]spec"
-            // https://github.com/odin-lang/Odin/issues/3605#issuecomment-2143625629
-            fmt.sbprintf(&builder, "%*[0]i", DIGIT_WIDTH, digit)
-        }
+        strings.write_byte(&bd, '0')
+        return strings.to_string(bd), nil
     }
-    return strings.to_string(builder), nil
+    /* 
+        Most significant digit should have no padding.
+     */
+    if is_neg(self) {
+        strings.write_byte(&bd, '-')
+    }
+    fmt.sbprint(&bd, self.digits[self.active - 1])
+    /* 
+        "%*spec" doesn't work anymore, need to do "%*[vararg-index]spec"
+        https://github.com/odin-lang/Odin/issues/3605#issuecomment-2143625629
+     */
+    #reverse for digit in self.digits[:self.active - 1] {
+        fmt.sbprintf(&bd, "%*[0]i", DIGIT_WIDTH, digit)
+    }
+    return strings.to_string(bd), nil
 }
 
 
@@ -313,7 +325,7 @@ bigint_cmp :: proc(x, y: BigInt) -> Comparison {
               456  >   123
             (-456) < (-123)
      */
-    for xdigit, xindex in x.digits[:x.active] {
+    #reverse for xdigit, xindex in x.digits[:x.active] {
         ydigit := y.digits[xindex]
         switch {
         case xdigit == ydigit: continue
@@ -404,14 +416,14 @@ cmp_abs :: proc {
 /* 
     Compare the digit arrays without considering sign.
  */
-bigint_cmp_abs :: proc(x, y: BigInt) -> Comparison {
+bigint_cmp_abs :: proc(x, y: BigInt) -> (result: Comparison) {
     switch {
     case x.active == y.active: break
     case x.active < y.active:  return .Less
     case x.active > y.active:  return .Greater
     }
 
-    for x_digit, x_index in x.digits[:x.active] {
+    #reverse for x_digit, x_index in x.digits[:x.active] {
         y_digit := y.digits[x_index]
         switch {
         case x_digit == y_digit: continue
@@ -607,7 +619,6 @@ bigint_sub :: proc(dst: ^BigInt, x, y: BigInt) -> Error {
         NOTE: May need to be negated depending on the assumption.
      */
     dst.sign = x.sign
-
     switch {
     /* 
         Assumptions 3 and 4. Accounts for:

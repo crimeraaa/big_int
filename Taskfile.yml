@@ -21,7 +21,7 @@ includes:
     taskfile: OdinTasks.yml
     vars:
       SRC: '{{.SRC}}/odin'
-      OUT: '{{.BIN}}/odin-out{{exeExt}}'
+      OUT_EXE: '{{.BIN}}/odin-out{{exeExt}}'
 
 # Note:
 #   Unlike GNU Make, we need to explicitly specify as default task when no

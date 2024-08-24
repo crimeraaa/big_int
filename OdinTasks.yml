@@ -9,9 +9,10 @@ tasks:
     desc: Convenience target that defers to build.
     cmds:
       - task: build
-    
-  build:
-    desc: Build the executable.
+  
+  do-action:
+    internal: true
+    desc: Do some action, one of 'build run test'.
     # Calls <root-Taskfile>:dirs
     deps:
       - task: :dirs
@@ -25,23 +26,39 @@ tasks:
         {{fail "MODE must be one of `debug release`"}}
         {{end}}'
     cmds:
-      - 'odin build {{.SRC}} {{.FLAGS}} -out:{{.OUT}}'
+      - 'odin {{.ACTION}} {{.SRC}} {{.FLAGS}} -out:{{.OUT_EXE}}'
     requires:
-      vars: [OUT]
-    generates:
-      - '{{.OUT}}'
+      vars: [ACTION, MODE, OUT_EXE]
     sources:
       - '{{.SRC}}/*.odin'
+    generates:
+      - '{{.OUT_EXE}}'
+    
+  build:
+    desc: Build the executable.
+    cmds:
+      - task: do-action
+        vars:
+          ACTION: build
 
   run:
     desc: Build or rebuild then run.
-    cmds:
+    deps:
       - task: build
-        vars: {
-          MODE: '{{.MODE}}'
-        }
-      - '{{.OUT}}'
-
+    cmds:
+      - '{{.OUT_EXE}}'
+    interactive: true
+  
+  test:
+    desc: Build the executable then run tests.
+    vars:
+      OUT_EXE: '{{.BIN}}/odin-test{{exeExt}}'
+    cmds:
+      - task: do-action
+        vars:
+          ACTION: test
+          OUT_EXE: '{{.OUT_EXE}}'
+  
   build-*:
     vars:
       MODE: '{{index .MATCH 0}}'

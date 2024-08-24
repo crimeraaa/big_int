@@ -135,7 +135,7 @@ internal_sub :: proc {
  */
 internal_bigint_sub :: proc(dst: ^BigInt, x, y: BigInt) {
     carry := SWORD(0)
-    for index in 0..<dst.active {
+    for &value, index in dst.digits[:dst.active] {
         /* 
             Instead of mutating `x` by subtracting 1 from `x.digits[index + 1]`,
             we can just keep track of when we carried/borrowed.
@@ -149,14 +149,12 @@ internal_bigint_sub :: proc(dst: ^BigInt, x, y: BigInt) {
         if index < y.active {
             diff -= SWORD(y.digits[index])
         }
-        // Need to carry?
+        carry = 0
         if diff < 0 {
-            diff += DIGIT_BASE
-            carry = 1
-        } else {
-            carry = 0
+            diff  += DIGIT_BASE
+            carry += 1
         }
-        dst.digits[index] = DIGIT(diff)
+        value = DIGIT(diff)
     }
 }
 
@@ -223,7 +221,7 @@ internal_mul :: proc {
 */
 internal_bigint_mul :: proc(dst: ^BigInt, x, y: BigInt) {
     for y_digit, y_index in y.digits[:y.active] {
-        carry := Indexed_Pair{index = y_index + 1, digit = 0}
+        carry: Indexed_Pair
         for x_digit, x_index in x.digits[:x.active] {
             upper, lower := internal_split_product(x_digit, y_digit)
             lower += carry.digit
@@ -238,6 +236,7 @@ internal_bigint_mul :: proc(dst: ^BigInt, x, y: BigInt) {
                     Remember that we are summing up the factors.
              */
             prod := Indexed_Pair{index = x_index + y_index, digit = lower}
+            carry.index = prod.index + 1
             carry.digit = upper
             if prod.digit += dst.digits[prod.index]; prod.digit > DIGIT_MAX {
                 prod.digit  -= DIGIT_BASE
