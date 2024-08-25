@@ -17,11 +17,18 @@ env:
 
 # https://taskfile.dev/usage/#including-other-taskfiles
 includes:
+  msvc:
+    taskfile: MsvcTasks.yml
+    vars:
+      SRC: '{{.SRC}}/cpp'
+      OUT_EXE: '{{.BIN}}/msvc-out{{exeExt}}'
+
   odin:
     taskfile: OdinTasks.yml
     vars:
       SRC: '{{.SRC}}/odin'
       OUT_EXE: '{{.BIN}}/odin-out{{exeExt}}'
+      TEST_EXE: '{{.BIN}}/odin-test{{exeExt}}'
 
 # Note:
 #   Unlike GNU Make, we need to explicitly specify as default task when no
@@ -34,7 +41,7 @@ tasks:
   default:
     cmds:
       - task: help
-
+  
   help:
     silent: true
     cmds:

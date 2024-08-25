@@ -1,23 +1,24 @@
 version: '3'
 
 vars:
-  DEBUG_FLAGS: -debug
-  RELEASE_FLAGS: -o:size -vet
-
+  COMMON_FLAGS: -nologo -W4 -WX -std:c++17 -EHsc -permissive- -Zc:preprocessor -Zc:__cplusplus
+  DEBUG_FLAGS: -Od -Zi -Fd:"{{.BIN}}/" -fsanitize=address -DDEBUG_USE_ASSERT
+  RELEASE_FLAGS: -O1
+  
 tasks:
   default:
-    desc: Convenience target that defers to build.
     cmds:
       - task: build
-  
-  do-action:
-    internal: true
-    desc: Do some action, one of 'build run test'.
-    # Calls <root-Taskfile>:dirs
+
+  build:
+    desc: Builds the executable.
     deps:
       - task: :dirs
-    # This is spaghetti but it's the least worst way
     vars:
+      # Hack as long as `sources` is not supported in a variable and Windows CMD
+      # cannot glob
+      IN_SRC:
+        sh: ls -1 '{{.SRC}}' | grep 'cpp' | awk '{print "{{.SRC}}/" $0}'
       FLAGS: '{{if eq .MODE "debug"}}
         {{.DEBUG_FLAGS}}
         {{else if eq .MODE "release"}}
@@ -26,37 +27,21 @@ tasks:
         {{fail "MODE must be one of `debug release`"}}
         {{end}}'
     cmds:
-      - 'odin {{.ACTION}} {{.SRC}} {{.FLAGS}} -out:{{.OUT_EXE}}'
+      - 'cl {{.COMMON_FLAGS}} {{.FLAGS}} -Fe:"{{.OUT_EXE}}" -Fo:"{{.OBJ}}/" {{.IN_SRC | replace "\n " " "}}'
     requires:
-      vars: [ACTION, MODE, OUT_EXE]
+      vars: [MODE, OUT_EXE]
     sources:
-      - '{{.SRC}}/*.odin'
+      - '{{.SRC}}/*.{cpp,hpp}'
     generates:
       - '{{.OUT_EXE}}'
-    
-  build:
-    desc: Build the executable.
-    cmds:
-      - task: do-action
-        vars:
-          ACTION: build
-
+  
   run:
-    desc: Build or rebuild then run.
+    desc: '[Re]uild the executable if needed then run it.'
     deps:
       - task: build
     cmds:
       - '{{.OUT_EXE}}'
-    interactive: true
-  
-  test:
-    desc: Build the executable then run tests.
-    cmds:
-      - task: do-action
-        vars:
-          ACTION: test
-          OUT_EXE: '{{.TEST_EXE}}'
-  
+
   build-*:
     vars:
       MODE: '{{index .MATCH 0}}'
@@ -74,5 +59,3 @@ tasks:
       - task: run
         vars:
           MODE: '{{.MODE}}'
-
-

@@ -10,7 +10,7 @@
                 "_DEBUG",
                 "UNICODE",
                 "_UNICODE",
-                "DEBUG_USE_PRINT"
+                "DEBUG_USE_ASSERT"
             ],
             "windowsSdkVersion": "10.0.20348.0",
             "cStandard": "c11",

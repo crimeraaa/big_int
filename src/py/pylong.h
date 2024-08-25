@@ -26,7 +26,7 @@ struct _object {
 
 /// --- cpython/Include/cpython/longintrepr.h ----------------------------- {{{1
 
-typedef uint32_t digit;
+typedef uint32_t digit_t;
 
 struct _longobject {
     /* macro PyObject_HEAD -> PyObject ob_base; -> fields thereof */
@@ -35,7 +35,7 @@ struct _longobject {
 
     /* _PyLongObject long_value; -> fields thereof */
     uintptr_t lv_tag;
-    digit ob_digit[1];
+    digit_t ob_digit[1];
 };
 
 /// 1}}} -----------------------------------------------------------------------
