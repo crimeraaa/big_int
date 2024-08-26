@@ -31,15 +31,6 @@ struct Slice : public Pointer<T> {
     }
 };
 
-/**
- * @brief
- *      An immutable sequence of `char`.
- *
- * @note
- *      The data being pointed at need not be nul terminated.
- */
-using String = Slice<const char>;
-
 template<class T>
 isize len(const Slice<T>& self)   { return self.length; }
 

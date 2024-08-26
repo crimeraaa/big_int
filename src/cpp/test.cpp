@@ -1,19 +1,13 @@
 #include <cstdarg>
 #include <cstdio>
 
-#include "common.hpp"
-#include "pointer.hpp"
-#include "slice.hpp"
-
-#define ALLOCATOR_INCLUDE_IMPLEMENTATION
+#define STRING_INCLUDE_IMPLEMENTATION
+#include "string.hpp"
 #include "allocator.hpp"
-#include "dynamic_array.hpp"
 
 const Allocator& allocator = allocator_default;
 
-using String_Buffer = Dynamic_Array<char>;
-
-static String read_line(String_Buffer* buf, FILE* stream)
+static String read_line(String_Builder* bd, FILE* stream)
 {
     int ch;
     for (;;) {
@@ -21,37 +15,37 @@ static String read_line(String_Buffer* buf, FILE* stream)
         if (ch == EOF || ch == '\r' || ch == '\n') {
             break;
         }
-        append(buf, char(ch));
+        string_builder_write_char(bd, char(ch));
     }
-    append(buf, '\0');
-    String str;
-    str.start  = (ch == EOF) ? nullptr : &(*buf)[0];
-    str.length = (ch == EOF) ? 0       : len(buf);
-    return str;
+    if (ch == EOF) {
+        return {nullptr, 0};
+    }
+    string_builder_write_char(bd, '\0');
+    return string_builder_to_string(*bd);
 }
 
-static String get_string(String_Buffer *buf, const char* prompt, ...)
+static String get_string(String_Builder* bd, const char* prompt, ...)
 {
     std::va_list args;
     va_start(args, prompt);
     std::vfprintf(stdout, prompt, args);
     va_end(args);
-    return read_line(buf, stdin);
+    return read_line(bd, stdin);
 }
 
 int main()
 {
-    String_Buffer buf = dynamic_array_make<char>(4, allocator);
+    String_Builder bd = string_builder_make(8, allocator);
     int i = 0;
     for (;;) {
-        clear(&buf);
-        String line = get_string(&buf, "[%i]>>> ", i++);
+        string_builder_reset(&bd);
+        String line = get_string(&bd, "[%i]>>> ", i++);
         // Got EOF?
         if (!line.start) {
             break;
         }
         std::printf("%s\n", line.start);
     }
-    destroy(&buf);
+    string_builder_destroy(&bd);
     return 0;
 }
