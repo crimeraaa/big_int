@@ -28,3 +28,9 @@ using isize = std::ptrdiff_t;
 
 using ubyte = u8;
 using usize = std::size_t;
+
+template<class T>
+static constexpr isize size_of(isize count = 1, isize extra = 0)
+{
+    return sizeof(T) * count + extra;
+}

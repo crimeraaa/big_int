@@ -2,12 +2,23 @@
 
 #include "common.hpp"
 #include "allocator.hpp"
-#include "pointer.hpp"
 
+/**
+ * @brief
+ *      Wraps a fat pointer with an allocator and the number of currently used
+ *      elements.
+ *
+ * @tparam T
+ *      Datatype for the underlying `Pointer<T>`.
+ */
 template<class T>
 struct Dynamic_Array {
-    using reference       = T&;
-    using const_reference = const T&;
+
+    using value_type      = T;
+    using reference       = value_type&;
+    using iterator        = value_type*;
+    using const_reference = const value_type&;
+    using const_iterator  = const value_type*;
 
     Allocator  allocator;
     Pointer<T> data;
@@ -18,11 +29,31 @@ struct Dynamic_Array {
         assert(0 <= index && index < this->active);
         return this->data[index];
     }
+
+    iterator begin() noexcept
+    {
+        return this->data.begin();
+    }
+
+    iterator end() noexcept
+    {
+        return begin() + this->active;
+    }
     
     const_reference operator[](isize index) const
     {
         assert(0 <= index && index < this->active);
         return this->data[index];
+    }
+
+    const_iterator begin() const noexcept
+    {
+        return this->data.begin();
+    }
+
+    const_iterator end() const noexcept
+    {
+        return begin() + this->active;
     }
 };
 
@@ -30,7 +61,6 @@ struct Dynamic_Array {
  * @brief
  *      Create a dynamic array with no allocated elements. It is simply
  *      initialized with the given allocator for later on.
- * 
  */
 template<class T>
 Dynamic_Array<T> dynamic_array_make(const Allocator& allocator)
@@ -42,6 +72,9 @@ Dynamic_Array<T> dynamic_array_make(const Allocator& allocator)
  * @brief
  *      Create a dynamic array with `n_len` elements allocated and ready to
  *      index.
+ * 
+ * @note
+ *      Calling `append()` will write at the `n_len` index, not the 0th index.
  */
 template<class T>
 Dynamic_Array<T> dynamic_array_make(isize n_len, const Allocator& allocator)
@@ -72,16 +105,28 @@ Dynamic_Array<T> dynamic_array_make(isize n_len, isize n_cap, const Allocator& a
 }
 
 template<class T>
-isize len(const Dynamic_Array<T>& self) { return self.active; }
+isize len(const Dynamic_Array<T>& self)
+{
+    return self.active;
+}
 
 template<class T>
-isize len(const Dynamic_Array<T>* self) { return self->active; }
+isize len(const Dynamic_Array<T>* self)
+{
+    return self->active;
+}
 
 template<class T>
-isize cap(const Dynamic_Array<T>& self) { return len(self.data); }
+isize cap(const Dynamic_Array<T>& self)
+{
+    return len(self.data);
+}
 
 template<class T>
-isize cap(const Dynamic_Array<T>* self) { return len(self->data); }
+isize cap(const Dynamic_Array<T>* self)
+{
+    return len(self->data);
+}
 
 template<class T>
 void append(Dynamic_Array<T>* self, const T& value)
@@ -93,6 +138,16 @@ void append(Dynamic_Array<T>* self, const T& value)
     }
     self->data[self->active] = value;
     self->active            += 1;
+}
+
+template<class T>
+T pop(Dynamic_Array<T>* self)
+{
+    isize index = self->active - 1;
+    assert(0 <= index && index < self->active);
+    T value      = self->data[index];
+    self->active = index;
+    return value;
 }
 
 // Only grows, does not shrink.

@@ -40,9 +40,9 @@ includes:
 tasks:
   default:
     cmds:
-      - task: help
+      - task: usage
   
-  help:
+  usage:
     silent: true
     cmds:
       - |

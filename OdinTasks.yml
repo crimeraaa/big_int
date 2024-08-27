@@ -18,13 +18,14 @@ tasks:
       - task: :dirs
     # This is spaghetti but it's the least worst way
     vars:
-      FLAGS: '{{if eq .MODE "debug"}}
+      FLAGS: >-
+        {{if eq .MODE "debug"}}
         {{.DEBUG_FLAGS}}
         {{else if eq .MODE "release"}}
         {{.RELEASE_FLAGS}}
         {{else}}
         {{fail "MODE must be one of `debug release`"}}
-        {{end}}'
+        {{end}}
     cmds:
       - 'odin {{.ACTION}} {{.SRC}} {{.FLAGS}} -out:{{.OUT_EXE}}'
     requires:
@@ -56,23 +57,4 @@ tasks:
         vars:
           ACTION: test
           OUT_EXE: '{{.TEST_EXE}}'
-  
-  build-*:
-    vars:
-      MODE: '{{index .MATCH 0}}'
-    desc: Sets MODE to 'debug' or 'release' then builds.
-    cmds:
-      - task: build
-        vars:
-          MODE: '{{.MODE}}'
-  
-  run-*:
-    vars:
-      MODE: '{{index .MATCH 0}}'
-    desc: Sets MODE to 'debug' or 'release' then builds and runs.
-    cmds:
-      - task: run
-        vars:
-          MODE: '{{.MODE}}'
-
 

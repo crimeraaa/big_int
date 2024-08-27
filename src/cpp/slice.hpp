@@ -5,9 +5,13 @@
 /**
  * @brief
  *      A non-owning view into some memory. You may adjust the view as needed.
+ *
+ * @tparam T
+ *      Datatype to be pointed to by the parent `Pointer<T>`.
  * 
  * @note
  *      The data being viewed is not necessarily immutable.
+ *      Immutability is only enforced when `T` is itself `const`.
  */
 template<class T>
 struct Slice : public Pointer<T> {
@@ -32,7 +36,13 @@ struct Slice : public Pointer<T> {
 };
 
 template<class T>
-isize len(const Slice<T>& self)   { return self.length; }
+isize len(const Slice<T>& self)
+{
+    return self.length;
+}
 
 template<class T>
-isize len(const Slice<T>* self)   { return self->length; }
+isize len(const Slice<T>* self)
+{
+    return self->length;
+}

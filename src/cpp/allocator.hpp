@@ -10,47 +10,52 @@ struct Allocator {
     AllocFn alloc_fn;
     ErrorFn error_fn;
     void*   context;  // Passed to both `alloc_fn` and `error_fn`.
-    
-    void* operator()(void* hint, isize sz_old, isize sz_new) const;
 };
+
+/**
+ * @brief
+ *      You may define this macro (either right before including or using a
+ *      compiler switch) to avoid creating `allocator_default`.
+ * 
+ * @note
+ *      Doing so will also avoid including the C headers `stdlib` and `stdio`.
+ *      Such behavior may be useful if you want to avoid those headers.
+ */
+#ifndef ALLOCATOR_NODEFAULT
 
 extern const Allocator allocator_default;
 
+#endif // ALLOCATOR_NODEFAULT
+
+void* allocate(isize sz_new, const Allocator& allocator);
+void* reallocate(void* hint, isize sz_old, isize sz_new, const Allocator& allocator);
+void  deallocate(void* ptr, isize sz_old, const Allocator& allocator);
+
 template<class T>
-static constexpr isize size_of(isize count = 1, isize extra = 0)
+T* raw_pointer_new(isize n_new, const Allocator& allocator)
 {
-    return sizeof(T) * count + extra;
+    void *next = allocate(size_of<T>(n_new), allocator);
+    return static_cast<T*>(next);
 }
 
 template<class T>
-T* raw_new(isize n_new, const Allocator& allocator)
+T* raw_pointer_resize(T* rawptr, isize n_old, isize n_new, const Allocator& allocator)
 {
-    void *ptr = allocator(nullptr, 0, size_of<T>(n_new));
-    return static_cast<T*>(ptr);
+    void *prev = static_cast<void*>(rawptr);
+    void *next = reallocate(prev, size_of<T>(n_old), size_of<T>(n_new), allocator);
+    return static_cast<T*>(next);
 }
 
 template<class T>
-T* raw_resize(T* prev, isize n_old, isize n_new, const Allocator& allocator)
+void raw_pointer_free(T* rawptr, isize n_old, const Allocator& allocator)
 {
-    void* hint = static_cast<void*>(prev);
-    void* ptr  = allocator(hint, size_of<T>(n_old), size_of<T>(n_new));
-    return static_cast<T*>(ptr);
-}
-
-template<class T>
-void raw_free(T* ptr, isize n_old, const Allocator& allocator)
-{
-    void *hint = static_cast<void*>(ptr);
-    allocator(hint, size_of<T>(n_old), 0);
+    deallocate(static_cast<void*>(rawptr), size_of<T>(n_old), allocator);
 }
 
 template<class T>
 Pointer<T> pointer_new(isize n_new, const Allocator& allocator)
 {
-    Pointer<T> ptr;
-    ptr.start  = raw_new<T>(n_new, allocator);
-    ptr.length = n_new;
-    return ptr;
+    return {raw_pointer_new<T>(n_new, allocator), n_new};
 }
 
 // Convenience overloaded template to default n_len to 1.
@@ -61,36 +66,47 @@ Pointer<T> pointer_new(const Allocator& allocator)
 }
 
 template<class T>
-void pointer_resize(Pointer<T>* ptr, isize n_new, const Allocator& allocator)
+void pointer_resize(Pointer<T>* fatptr, isize n_new, const Allocator& allocator)
 {
-    ptr->start  = raw_resize(ptr->start, len(ptr), n_new, allocator);
-    ptr->length = n_new;
+    T* next = raw_pointer_resize(fatptr->start, len(fatptr), n_new, allocator);
+    *fatptr = {next, n_new};
 }
 
 template<class T>
-void pointer_free(Pointer<T>* ptr, const Allocator& allocator)
+void pointer_free(Pointer<T>* fatptr, const Allocator& allocator)
 {
-    raw_free(ptr->start, len(ptr), allocator);
-    ptr->start  = nullptr;
-    ptr->length = 0;
+    raw_pointer_free(fatptr->start, len(fatptr), allocator);
+    *fatptr = {nullptr, 0};
 }
 
 #ifdef ALLOCATOR_INCLUDE_IMPLEMENTATION
 
-#include <cstdlib>
-#include <cstdio>
-
-void* Allocator::operator()(void* hint, isize sz_old, isize sz_new) const
+void* allocate(isize sz_new, const Allocator& allocator)
 {
-    void* ptr = this->alloc_fn(hint, sz_old, sz_new, this->context);
-    // Nonzero allocation request failed and we have an error handler?
-    if (!ptr && sz_new != 0 && this->error_fn) {
-        this->error_fn("[Re]allocation failed!", this->context);
+    return reallocate(nullptr, 0, sz_new, allocator);
+}
+
+void* reallocate(void* prev, isize sz_old, isize sz_new, const Allocator& allocator)
+{
+    void* next = allocator.alloc_fn(prev, sz_old, sz_new, allocator.context);
+    // Nonzero allocation request failed, and we have an error handler?
+    if (!next && sz_new != 0 && allocator.error_fn) {
+        allocator.error_fn("[Re]allocation failure", allocator.context);
     }
-    return ptr;
+    return next;
+}
+
+void deallocate(void* ptr, isize sz_old, const Allocator& allocator)
+{
+    reallocate(ptr, sz_old, 0, allocator);
 }
 
 // --- DEFAULT ALLOCATION ------------------------------------------------- {{{1
+
+#ifndef ALLOCATOR_NODEFAULT
+
+#include <cstdlib>
+#include <cstdio>
 
 const Allocator allocator_default = {
     // AllocFn
@@ -115,6 +131,8 @@ const Allocator allocator_default = {
     // context
     nullptr,
 };
+
+#endif // ALLOCATOR_NODEFAULT
 
 // 1}}} ------------------------------------------------------------------------
 

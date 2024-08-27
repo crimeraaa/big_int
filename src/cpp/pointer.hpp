@@ -2,38 +2,27 @@
 
 #include "common.hpp"
 
-
-// A fat pointer wraps a raw pointer with its valid number of elements.
+/**
+ * @brief
+ *      A fat pointer. Wraps a raw pointer with the number of elements that are
+ *      being pointed to.
+ *      
+ * @tparam T
+ *      The datatype to be pointed at.
+ */
 template<class T>
 struct Pointer {
-    
-    using pointer   = T*;
-    using reference = T&;
-    using iterator  = T*;
-    
-    using const_pointer   = const T*;
-    using const_reference = const T&;
-    using const_iterator  = const T*;
+    using value_type      = T;
+    using pointer         = value_type*;
+    using reference       = value_type&;
+    using iterator        = value_type*;
+    using const_pointer   = const value_type*;
+    using const_reference = const value_type&;
+    using const_iterator  = const value_type*;
 
-    pointer start;
+    pointer start;  // Address of the first element.
     isize   length; // How many elements can be validly dereferenced.
-    
-    const_reference operator[](isize index) const
-    {
-        assert(0 <= index && index < length);
-        return this->start[index];
-    }
-    
-    const_reference operator*() const
-    {
-        return operator[](0);
-    }
-    
-    const_pointer operator->() const
-    {
-        return &operator[](0);
-    }
-    
+
     reference operator[](isize index)
     {
         assert(0 <= index && index < length);
@@ -50,29 +39,52 @@ struct Pointer {
         return &operator[](0);
     }
     
-    const_iterator cbegin() const
+    iterator begin() noexcept
     {
         return this->start;
     }
     
-    const_iterator cend() const
+    iterator end() noexcept
+    {
+        return this->start + this->length;
+    }
+
+    const_reference operator[](isize index) const
+    {
+        assert(0 <= index && index < this->length);
+        return this->start[index];
+    }
+    
+    const_reference operator*() const
+    {
+        return operator[](0);
+    }
+    
+    const_pointer operator->() const
+    {
+        return &operator[](0);
+    }
+    
+    const_iterator begin() const noexcept
+    {
+        return this->start;
+    }
+    
+    const_iterator end() const noexcept
     {
         return this->start + this->length;
     }
     
-    iterator begin() const
-    {
-        return cbegin();
-    }
-    
-    iterator end() const
-    {
-        return cend();
-    }
 };
 
 template<class T>
-isize len(const Pointer<T>& self) { return self.length; }
+isize len(const Pointer<T>& self)
+{
+    return self.length;
+}
 
 template<class T>
-isize len(const Pointer<T>* self) { return self->length; }
+isize len(const Pointer<T>* self)
+{
+    return self->length;
+}

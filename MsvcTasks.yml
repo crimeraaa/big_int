@@ -1,7 +1,8 @@
 version: '3'
 
 vars:
-  COMMON_FLAGS: -nologo -W4 -WX -std:c++17 -EHsc -permissive- -Zc:preprocessor -Zc:__cplusplus
+  COMMON_FLAGS: >-
+    -nologo -W4 -WX -std:c++17 -EHsc -permissive- -Zc:preprocessor -Zc:__cplusplus
   DEBUG_FLAGS: -Od -Zi -Fd:"{{.BIN}}/" -fsanitize=address -DDEBUG_USE_ASSERT
   RELEASE_FLAGS: -O1
   
@@ -17,21 +18,25 @@ tasks:
     vars:
       # Hack as long as `sources` is not supported in a variable and Windows CMD
       # cannot glob
-      IN_SRC:
+      _SOURCES:
         sh: ls -1 '{{.SRC}}' | grep 'cpp' | awk '{print "{{.SRC}}/" $0}'
-      FLAGS: '{{if eq .MODE "debug"}}
+      IN_SRC: '{{._SOURCES | replace "\n" " "}}'
+      FLAGS: >-
+        {{if eq .MODE "debug"}}
         {{.DEBUG_FLAGS}}
         {{else if eq .MODE "release"}}
         {{.RELEASE_FLAGS}}
         {{else}}
         {{fail "MODE must be one of `debug release`"}}
-        {{end}}'
+        {{end}}
     cmds:
-      - 'cl {{.COMMON_FLAGS}} {{.FLAGS}} -Fe:"{{.OUT_EXE}}" -Fo:"{{.OBJ}}/" {{.IN_SRC | replace "\n " " "}}'
+      - 'cl {{.COMMON_FLAGS}} {{.FLAGS}} -Fe:"{{.OUT_EXE}}" -Fo:"{{.OBJ}}/" {{.IN_SRC}}'
     requires:
       vars: [MODE, OUT_EXE]
+    # Seems '{cpp,hpp}' or `[ch]pp` doesn't work with Windows
     sources:
-      - '{{.SRC}}/*.{cpp,hpp}'
+      - '{{.SRC}}/*.cpp'
+      - '{{.SRC}}/*.hpp'
     generates:
       - '{{.OUT_EXE}}'
   
@@ -41,21 +46,3 @@ tasks:
       - task: build
     cmds:
       - '{{.OUT_EXE}}'
-
-  build-*:
-    vars:
-      MODE: '{{index .MATCH 0}}'
-    desc: Sets MODE to 'debug' or 'release' then builds.
-    cmds:
-      - task: build
-        vars:
-          MODE: '{{.MODE}}'
-  
-  run-*:
-    vars:
-      MODE: '{{index .MATCH 0}}'
-    desc: Sets MODE to 'debug' or 'release' then builds and runs.
-    cmds:
-      - task: run
-        vars:
-          MODE: '{{.MODE}}'

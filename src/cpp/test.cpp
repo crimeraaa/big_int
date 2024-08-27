@@ -5,9 +5,7 @@
 #include "string.hpp"
 #include "allocator.hpp"
 
-const Allocator& allocator = allocator_default;
-
-static String read_line(String_Builder* bd, FILE* stream)
+static const char* read_line(String_Builder* bd, FILE* stream)
 {
     int ch;
     for (;;) {
@@ -18,13 +16,12 @@ static String read_line(String_Builder* bd, FILE* stream)
         string_builder_write_char(bd, char(ch));
     }
     if (ch == EOF) {
-        return {nullptr, 0};
+        return nullptr;
     }
-    string_builder_write_char(bd, '\0');
-    return string_builder_to_string(*bd);
+    return string_builder_to_cstring(bd);
 }
 
-static String get_string(String_Builder* bd, const char* prompt, ...)
+static const char* get_string(String_Builder* bd, const char* prompt, ...)
 {
     std::va_list args;
     va_start(args, prompt);
@@ -35,16 +32,16 @@ static String get_string(String_Builder* bd, const char* prompt, ...)
 
 int main()
 {
-    String_Builder bd = string_builder_make(8, allocator);
+    String_Builder bd = string_builder_make(8, allocator_default);
     int i = 0;
     for (;;) {
         string_builder_reset(&bd);
-        String line = get_string(&bd, "[%i]>>> ", i++);
+        const char* line = get_string(&bd, "[%i] >>> ", i++);
         // Got EOF?
-        if (!line.start) {
+        if (!line) {
             break;
         }
-        std::printf("%s\n", line.start);
+        std::printf("%s\n", line);
     }
     string_builder_destroy(&bd);
     return 0;
