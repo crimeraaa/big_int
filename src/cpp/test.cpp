@@ -1,48 +1,69 @@
+#define PSEUDO_ODIN_IMPLEMENTATION
+#include "pseudo_odin.hpp"
+
 #include <cstdarg>
+#include <cstdlib>
 #include <cstdio>
 
-#define STRING_INCLUDE_IMPLEMENTATION
-#include "string.hpp"
-#include "allocator.hpp"
+// Standard C allocator
+static const Allocator global_allocator = {
+    // AllocFn
+    [](void *hint, isize sz_old, isize sz_new, void *ctx) -> void * 
+    {
+        unused(sz_old);
+        unused(ctx);
+        if (!hint && sz_new == 0) {
+            std::free(hint);
+            return nullptr;
+        }
+        return std::realloc(hint, sz_new);
+    },
+    // ErrorFn
+    [](const char *msg, void *ctx)
+    {
+        unused(ctx);
+        std::fprintf(stderr, "[FATAL] %s\n", msg);
+        std::fflush(stderr);
+        std::abort();
+    },
+    // context
+    nullptr,
+};
 
-static const char* read_line(String_Builder* bd, FILE* stream)
+static String read_line(String *buf, FILE *stream)
 {
     int ch;
     for (;;) {
-        ch = fgetc(stream);
+        ch = std::fgetc(stream);
         if (ch == EOF || ch == '\r' || ch == '\n') {
             break;
         }
-        string_builder_write_char(bd, char(ch));
+        string_append_char(buf, cast(char)ch);
     }
-    if (ch == EOF) {
-        return nullptr;
-    }
-    return string_builder_to_cstring(bd);
+    return (ch == EOF) ? nullptr : *buf;
 }
 
-static const char* get_string(String_Builder* bd, const char* prompt, ...)
+static String get_string(String *buf, const char *fmt, ...)
 {
     std::va_list args;
-    va_start(args, prompt);
-    std::vfprintf(stdout, prompt, args);
+    va_start(args, fmt);
+    std::vfprintf(stdout, fmt, args);
     va_end(args);
-    return read_line(bd, stdin);
+    return read_line(buf, stdin);
 }
 
 int main()
 {
-    String_Builder bd = string_builder_make(8, allocator_default);
-    int i = 0;
+    String buf = string_make_reserve(global_allocator, 8);
     for (;;) {
-        string_builder_reset(&bd);
-        const char* line = get_string(&bd, "[%i] >>> ", i++);
-        // Got EOF?
+        String line;
+        string_clear(&buf);
+        line = get_string(&buf, ">>> ");
         if (!line) {
             break;
         }
-        std::printf("%s\n", line);
+        std::printf("'%s' (len=%ti, cap=%ti)\n", line, string_len(line), string_cap(line));
     }
-    string_builder_destroy(&bd);
+    string_delete(&buf);
     return 0;
 }

@@ -8,7 +8,9 @@
 #include <cstddef>
 #include <cstdint>
 
-#define unused(expr)    static_cast<void>(expr)
+// Easier to grep
+#define cast(T)         (T)
+#define unused(expr)    cast(void)expr
 
 using  i8 = std::int8_t;
 using i16 = std::int16_t;
@@ -29,8 +31,5 @@ using isize = std::ptrdiff_t;
 using ubyte = u8;
 using usize = std::size_t;
 
-template<class T>
-static constexpr isize size_of(isize count = 1, isize extra = 0)
-{
-    return sizeof(T) * count + extra;
-}
+#define size_of(T)  cast(isize)sizeof(T)
+#define count_of(a) (size_of((a)) / size_of((a)[0]))
