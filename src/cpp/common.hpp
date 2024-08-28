@@ -25,11 +25,11 @@ using u64 = std::uint64_t;
 using f32 = float;
 using f64 = double;
 
-using ibyte = i8;
 using isize = std::ptrdiff_t;
-
-using ubyte = u8;
 using usize = std::size_t;
+using byte  = u8;
 
-#define size_of(T)  cast(isize)sizeof(T)
-#define count_of(a) (size_of((a)) / size_of((a)[0]))
+#define size_of(T)      cast(isize)sizeof(T)
+#define align_of(T)     alignof(T)
+#define offset_of(T, M) offsetof(T, M)
+#define count_of(a)     (size_of((a)) / size_of((a)[0]))

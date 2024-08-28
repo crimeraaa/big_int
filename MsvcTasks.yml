@@ -19,7 +19,7 @@ tasks:
       # Hack as long as `sources` is not supported in a variable and Windows CMD
       # cannot glob
       _SOURCES:
-        sh: ls -1 '{{.SRC}}' | grep 'cpp' | awk '{print "{{.SRC}}/" $0}'
+        sh: ls -1 '{{.SRC}}' | grep 'cpp$' | awk '{print "{{.SRC}}/" $0}'
       IN_SRC: '{{._SOURCES | replace "\n" " "}}'
       FLAGS: >-
         {{if eq .MODE "debug"}}
