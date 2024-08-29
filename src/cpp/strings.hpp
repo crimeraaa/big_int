@@ -48,10 +48,14 @@ isize len(cstring cstr);
 
 String_Builder string_builder_make         (Allocator a, isize len = 0, isize cap = 0);
 void           string_builder_destroy      (String_Builder *self);
-isize          string_builder_len          (const String_Builder &self);
+void           string_builder_reset        (String_Builder *self);
+void           string_builder_grow         (String_Builder *self, isize new_cap);
+
 isize          string_builder_cap          (const String_Builder &self);
 String         string_builder_to_string    (const String_Builder &self);
 cstring        string_builder_to_cstring   (const String_Builder &self);
+
+isize          string_builder_write_char   (String_Builder *self, char ch);
 isize          string_builder_write_bytes  (String_Builder *self, Slice<byte> bytes);
 isize          string_builder_write_string (String_Builder *self, String str);
 isize          string_builder_write_cstring(String_Builder *self, cstring cstr);
@@ -75,6 +79,18 @@ void string_builder_destroy(String_Builder *self)
     destroy(&self->buffer);
 }
 
+void string_builder_reset(String_Builder *self)
+{
+    clear(&self->buffer);
+}
+
+void string_builder_grow(String_Builder *self, isize new_cap)
+{
+    if (new_cap > cap(self->buffer)) {
+        reserve(&self->buffer, new_cap);
+    }
+}
+
 isize string_builder_len(const String_Builder &self)
 {
     return len(self.buffer);
@@ -95,11 +111,17 @@ cstring string_builder_to_cstring(const String_Builder &self)
     return &self.buffer[0];
 }
 
+isize string_builder_write_char(String_Builder *self, char ch)
+{
+    append(&self->buffer, ch);
+    append(&self->buffer, '\0');
+    pop(&self->buffer);
+    return 1;
+}
+
 isize string_builder_write_bytes(String_Builder *self, Slice<byte> bytes)
 {
-    for (auto byte : bytes) {
-        append(&self->buffer, cast(char)byte);
-    }
+    append(&self->buffer, slice_cast<char>(bytes));
     append(&self->buffer, '\0');
     pop(&self->buffer);
     return len(bytes);

@@ -12,66 +12,8 @@
  *      The data being pointed to is not necessarily immutable.
  */
 template<class T>
-struct Slice {
-
-    using value_type      = T;
-    using pointer         = value_type *;
-    using reference       = value_type &;
-    using iterator        = pointer;
-    using const_pointer   = const value_type *;
-    using const_reference = const value_type &;
-    using const_iterator  = const_pointer;
-
-    pointer data;
-    isize   length;
-    
-    reference operator[](isize index)
-    {
-        #ifdef DEBUG_USE_ASSERT
-            assert(0 <= index && index < this->length);
-        #endif
-        return this->data[index];
-    }
-    
-    explicit operator pointer() noexcept
-    {
-        return this->data;
-    }
-    
-    iterator begin() noexcept
-    {
-        return this->data;
-    }
-    
-    iterator end() noexcept
-    {
-        return this->data + this->length;
-    }
-
-    const_reference operator[](isize index) const
-    {
-        #ifdef DEBUG_USE_ASSERT
-            assert(0 <= index && index < this->length);
-        #endif
-        return this->data[index];
-    }
-
-    explicit operator const_pointer() const noexcept
-    {
-        return this->data;
-    }
-    
-    const_iterator begin() const noexcept
-    {
-        return this->data;
-    }
-    
-    const_iterator end() const noexcept
-    {
-        return this->data + this->length;
-    }
-
-};
+struct Slice : public Basic_Array<T>
+{};
 
 template<class T>
 isize slice_len(const Slice<T> &self)
@@ -83,6 +25,19 @@ template<class T>
 isize slice_len(const Slice<T> *self)
 {
     return self->length;
+}
+
+/**
+ * @brief
+ *      Reinterpet the data being pointed to by `self`.
+ * 
+ * @warning
+ *      You must have a VERY good reason to do this!
+ */
+template<class To, class From>
+Slice<To> slice_cast(const Slice<From> &self)
+{
+    return {cast(To *)self.data, len(self)};
 }
 
 ///--- GLOBAL UTILITY ----------------------------------------------------- {{{1

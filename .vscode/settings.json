@@ -29,7 +29,9 @@
         "xmemory": "cpp",
         "xstddef": "cpp",
         "xtr1common": "cpp",
-        "cstdarg": "c"
+        "cstdarg": "c",
+        "iterator": "cpp",
+        "optional": "cpp"
     },
     "python.analysis.typeCheckingMode": "basic",
     "Lua.workspace.checkThirdParty": false

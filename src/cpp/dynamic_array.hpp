@@ -3,45 +3,21 @@
 #include "cpp_odin.hpp"
 #include "slice.hpp"
 
+/**
+ * @note
+ *      Order of members, due to single inheritance, are:
+ *
+ *      Basic_Array<T>::data
+ *      Basic_Array<T>::length
+ *      Dynamic_Array<T>::allocator
+ *      Dynamic_Array<T>::capacity
+ */
 template<class T>
-struct Dynamic_Array {
+struct Dynamic_Array : public Basic_Array<T> {
     
-    using value_type      = T;
-    using pointer         = value_type *;
-    using reference       = value_type &;
-    using const_pointer   = const value_type *;
-    using const_reference = const value_type &;
-
     Allocator allocator;
-    isize     length;
     isize     capacity;
-    pointer   data;
     
-    reference operator[](isize index)
-    {
-        #ifdef DEBUG_USE_ASSERT
-            assert(0 <= index && index < this->length);
-        #endif
-        return this->data[index];
-    }
-
-    explicit operator pointer()
-    {
-        return this->data;
-    }
-    
-    const_reference operator[](isize index) const
-    {
-        #ifdef DEBUG_USE_ASSERT
-            assert(0 <= index && index < this->length);
-        #endif
-        return this->data[index];
-    }
-
-    explicit operator const_pointer() const
-    {
-        return this->data;
-    }
 };
 
 template<class T>
@@ -51,7 +27,12 @@ Dynamic_Array<T> dynamic_array_make(Allocator a, isize len = 0, isize cap = 0)
     if (cap == 0) {
         cap = len;
     }
-    return {a, len, cap, pointer_new<T>(a, cap)};
+    Dynamic_Array<T> self;
+    self.data      = pointer_new<T>(a, cap);
+    self.length    = len;
+    self.allocator = a;
+    self.capacity  = cap;
+    return self;
 }
 
 template<class T>
@@ -96,13 +77,14 @@ isize dynamic_array_append(Dynamic_Array<T> *self, const Slice<T> &values)
 {
     isize old_len = len(self);
     isize new_len = old_len + len(values);
-    if (new_len >= cap(self)) {
+    if (new_len > cap(self)) {
         reserve(self, new_len);
     }
     
     for (isize i = 0, limit = len(values); i < limit; i++) {
-        append(self, values[i]);
+        self->data[old_len + i] = values[i];
     }
+    self->length = new_len;
     return len(values);
 }
 
@@ -177,9 +159,7 @@ isize append(Dynamic_Array<T> *self, const Slice<T> &values)
 template<class T>
 isize append(Dynamic_Array<T> *self, const Slice<const T> &values)
 {
-    using value_type = std::remove_const_t<T>;
-    using pointer    = value_type *;
-    return dynamic_array_append(self, {cast(pointer)values.data, len(values)});
+    return dynamic_array_append(self, slice_cast<T>(values));
 }
 
 template<class T>
