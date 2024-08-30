@@ -5,16 +5,18 @@
 #include <cstdio>
 #include <cstring>
 
-static const Allocator heap_allocator{
+using namespace odin;
+
+static const mem::Allocator heap_allocator{
     /**
      * @brief
      *      The standard C `malloc` family already ensures correct alignment and
      *      does book-keeping for us.
      */
-    [](const Allocator_Proc_Args &args, Allocator_Error *e) -> rawptr
+    [](const mem::Allocator_Proc_Args &args, mem::Allocator_Error *e) -> rawptr
     {
-        using Error = Allocator_Error;
-        using Mode  = Allocator_Mode;
+        using Error = mem::Allocator_Error;
+        using Mode  = mem::Allocator_Mode;
 
         rawptr ptr{nullptr};
         if (e) {
@@ -58,21 +60,31 @@ static const Allocator heap_allocator{
         }
         return ptr;
     },
-    // Allocator::context
+    // odin::mem::Allocator::data
     nullptr,
 };
 
 int main()
 {
-    Pointer<int> ptr_i = ptr_new<int>(heap_allocator, 4);
+    Pointer<int> ptr   = mem::new_ptr<int>(heap_allocator);
+    Slice<int>   array = mem::make_slice<int>(heap_allocator, 4);
+    
+    *ptr = 13;
+    // ptr[0] = 14; // error: overload resolution selected deleted operator
+    std::printf("*ptr = %i\n", *ptr);
+    
+    // *array = 13; // expected: compile error
+    array[0] = 8;
+    array[1] = 5;
+    array[2] = 13;
+    array[3] = 21;
+    // array[4] = 32; // error: abort when debug else UB
 
-    *ptr_i   = 13;
-    ptr_i[1] = 14;
-
-    std::printf("ptr_i[0] = %i, ptr_i[1] = %i\n", *ptr_i, ptr_i[1]);
-    std::printf("ptr_i = %p, len(ptr_i) = %ti\n", &ptr_i[0], len(ptr_i));
-    ptr_resize(heap_allocator, &ptr_i, 10);
-    std::printf("ptr_i = %p, len(ptr_i) = %ti\n", &ptr_i[0], len(ptr_i));
-    ptr_free(heap_allocator, &ptr_i);
+    for (isize i = 0; i < len(array); i++) {
+        std::printf("array[%ti] = %i\n", i, array[i]);
+    }
+    
+    mem::free_ptr(heap_allocator, ptr);
+    mem::delete_slice(heap_allocator, array);
     return 0;
 }
