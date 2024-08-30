@@ -2,20 +2,7 @@
 
 #include "cpp_odin.hpp"
 
-/**
- * @brief
- *      Simply a pointer to arbitrary data with how many bytes it points to.
- *
- * @note
- *      We create a separate struct because `Slice<void>` will result in compile
- *      time errors.
- *      
- *      Taken from: https://pkg.odin-lang.org/base/runtime/#Raw_Slice
- */
-struct Raw_Slice {
-    void *data;
-    isize len;
-};
+using Raw_Slice = Slice<void>;
 
 enum class Allocator_Error : u8 {
     None                 = 0,
@@ -26,8 +13,8 @@ enum class Allocator_Error : u8 {
 };
 
 /**
- * @note
- *      See: https://pkg.odin-lang.org/base/runtime/#Allocator_Mode
+ * @link
+ *      https://pkg.odin-lang.org/base/runtime/#Allocator_Mode
  */
 enum class Allocator_Mode : u8 {
     Alloc,
@@ -37,173 +24,138 @@ enum class Allocator_Mode : u8 {
     Resize_Non_Zeroed,
 };
 
-template<class T>
-struct Allocation {
-    Pointer<T>      pointer;
-    Allocator_Error error;
-};
-
-struct Raw_Allocation {
-    void *          pointer;
-    Allocator_Error error;
-};
-
-/**
- * @brief
- *      A separate type because all the different parameters can get quite
- *      unwieldy.
- */
-struct Allocator_Proc_Args {
-    Raw_Slice old;
-    isize     new_size;
-    isize     align;
-};
-
-using Allocator_Proc = Raw_Allocation (*)(void *ctx, Allocator_Mode mode, Allocator_Proc_Args args);
-
 /**
  * @note
- *      See: https://pkg.odin-lang.org/base/runtime/#Allocator
+ *      The sheer number of arguments get rather unwieldy.
+ */
+struct Allocator_Proc_Args {
+    rawptr         allocator_data;
+    Allocator_Mode mode;
+    isize          new_size;
+    isize          align;
+    Raw_Slice      memory;
+};
+
+using Allocator_Proc = rawptr (*)(const Allocator_Proc_Args &args, Allocator_Error *e);
+
+/**
+ * @link
+ *      https://pkg.odin-lang.org/base/runtime/#Allocator
+ *      https://pkg.odin-lang.org/base/runtime/#mem_alloc
+ *      https://pkg.odin-lang.org/base/runtime/#mem_resize
+ *      https://pkg.odin-lang.org/base/runtime/#mem_free
+ *      https://pkg.odin-lang.org/base/runtime/#mem_alloc_non_zeroed
  */
 struct Allocator {
     Allocator_Proc procedure;
-    void *         context;
+    rawptr         data;
 };
 
+rawptr mem_alloc            (Allocator a, isize new_size, isize align, Allocator_Error *e);
+rawptr mem_alloc_non_zeroed (Allocator a, isize new_size, isize align, Allocator_Error *e);
+rawptr mem_resize           (Allocator a, Raw_Slice s, isize new_size, isize align, Allocator_Error *e);
+rawptr mem_resize_non_zeroed(Allocator a, Raw_Slice s, isize new_size, isize align, Allocator_Error *e);
+void   mem_free             (Allocator a, Raw_Slice s, Allocator_Error *e);
 
-/**
- * @note
- *      See: https://pkg.odin-lang.org/base/runtime/#mem_alloc
- *      See: https://pkg.odin-lang.org/base/runtime/#mem_resize
- *      See: https://pkg.odin-lang.org/base/runtime/#mem_free
- *      See: https://pkg.odin-lang.org/base/runtime/#mem_alloc_non_zeroed
- */
-Raw_Allocation  mem_alloc (const Allocator &a, isize size, isize align);
-Raw_Allocation  mem_resize(const Allocator &a, const Raw_Slice &s, isize new_size, isize align);
-Allocator_Error mem_free  (const Allocator &a, const Raw_Slice &s);
-
-Raw_Allocation  mem_alloc_non_zeroed (const Allocator &a, isize size, isize align);
-Raw_Allocation  mem_resize_non_zeroed(const Allocator &a, const Raw_Slice &s, isize new_size, isize align);
-
-template<typename T>
-Allocation<T> ptr_new_safe(const Allocator &a, isize len = 1)
+template<class T>
+Pointer<T> ptr_new(Allocator a, isize len = 1, Allocator_Error *e = nullptr)
 {
-    auto [ptr, err] = mem_alloc(a, size_of(T) * len, align_of(T));
-    return {{cast(T *)ptr, len}, err};
+    isize  new_size   = size_of(T) * len;
+    rawptr new_rawptr = mem_alloc(a, new_size, align_of(T), e);
+    return {cast(T *)new_rawptr, len};
 }
 
 template<class T>
-Allocation<T> ptr_resize_safe(const Allocator &a, Pointer<T> *s, isize new_len)
+Pointer<T> ptr_resize(Allocator a, Pointer<T> *ptr, isize new_len, Allocator_Error *e = nullptr)
 {
-    void *  old_ptr  = cast(void *)s->data;
-    isize   old_size = s->len;
-    isize   new_size = size_of(T) * new_len;
-    auto  [ptr, err] = mem_resize(a, {old_ptr, old_size}, new_size, align_of(T));    
-
-    *s = {cast(T *)ptr, new_len};
-    return {*s, err};
+    rawptr old_rawptr = cast(void *)ptr->data;
+    isize  old_size   = size_of(T) * ptr->len;
+    isize  new_size   = size_of(T) * new_len;
+    rawptr new_rawptr = mem_resize(a, {old_rawptr, old_size}, new_size, align_of(T), e);
+    return *ptr = {cast(T *)new_rawptr, new_len};
 }
 
 template<class T>
-Allocator_Error ptr_free_safe(const Allocator &a, Pointer<T> *s)
+void ptr_free(Allocator a, Pointer<T> *ptr, Allocator_Error *e = nullptr)
 {
-    void *old_ptr = cast(void *)s->data;
-    isize old_len = size_of(T) * s->len;    
-    *s = {nullptr, 0};
-    return mem_free(a, {old_ptr, old_len});
-}
-
-// Wrapper to `ptr_new_safe` that immediately returns the pointer.
-template<class T>
-Pointer<T> ptr_new(const Allocator &a, isize len = 1)
-{
-    return ptr_new_safe<T>(a, len).pointer;
-}
-
-// Wrapper to `ptr_resize_safe` that immediately returns the pointer.
-template<class T>
-Pointer<T> ptr_resize(const Allocator &a, Pointer<T> *s, isize new_len)
-{
-    return ptr_resize_safe(a, s, new_len).pointer;
-}
-
-// Wrapper to `ptr_free_safe` that ignores the error.
-template<class T>
-void ptr_free(const Allocator &a, Pointer<T> *s)
-{
-    ptr_free_safe(a, s);
+    rawptr old_rawptr = cast(void *)ptr->data;
+    isize  old_size   = size_of(T) * ptr->len;
+    mem_free(a, {old_rawptr, old_size}, e);
 }
 
 #ifdef CPP_ODIN_IMPLEMENTATION
 
-Raw_Allocation mem_alloc(const Allocator &a, isize size, isize align)
+static rawptr mem__alloc(Allocator a, Allocator_Mode mode, isize new_size, isize align, Allocator_Error *e)
 {
-    // Nothing to do
-    if (size == 0 || !a.procedure) {
-        return {nullptr, Allocator_Error::None};
-    }
-
     Allocator_Proc_Args args;
-    args.old      = {nullptr, 0};
-    args.new_size = size;
-    args.align    = align;
-    return a.procedure(a.context, Allocator_Mode::Alloc, args);
+    args.allocator_data = a.data;
+    args.mode           = mode;
+    args.new_size       = new_size;
+    args.align          = align;
+    args.memory         = {nullptr, 0};
+    return a.procedure(args, e);
 }
 
-Raw_Allocation mem_resize(const Allocator &a, const Raw_Slice &s, isize new_size, isize align)
+static rawptr mem__resize(Allocator a, Allocator_Mode mode, Raw_Slice s, isize new_size, isize align, Allocator_Error *e)
+{
+    Allocator_Proc_Args args;
+    args.allocator_data = a.data;
+    args.mode           = mode;
+    args.new_size       = new_size;
+    args.align          = align;
+    args.memory         = s;
+    return a.procedure(args, e);
+}
+
+rawptr mem_alloc(Allocator a, isize new_size, isize align, Allocator_Error *e)
+{
+    // Nothing to do
+    if (new_size == 0 || !a.procedure) {
+        return nullptr;
+    }
+    return mem__alloc(a, Allocator_Mode::Alloc, new_size, align, e);
+}
+
+rawptr mem_resize(Allocator a, Raw_Slice s, isize new_size, isize align, Allocator_Error *e)
 {
     // Nothing to do
     if (!a.procedure) {
-        return {nullptr, Allocator_Error::None};
+        return nullptr;
     }
-    
-    Allocator_Proc_Args args;
-    args.old      = s;
-    args.new_size = new_size;
-    args.align    = align;
-    return a.procedure(a.context, Allocator_Mode::Resize, args);
+    return mem__resize(a, Allocator_Mode::Resize, s, new_size, align, e);
 }
 
-Allocator_Error mem_free(const Allocator &a, const Raw_Slice &s)
+void mem_free(Allocator a, Raw_Slice s, Allocator_Error *e)
 {
     // Nothing to do
     if (!s.data || !a.procedure) {
-        return Allocator_Error::None;
+        return;
     }
-
     Allocator_Proc_Args args;
-    args.old      = s;
-    args.new_size = 0;
-    args.align    = 0;
-    return a.procedure(a.context, Allocator_Mode::Free, args).error;
+    args.allocator_data = a.data;
+    args.mode           = Allocator_Mode::Free;
+    args.new_size       = 0;
+    args.align          = 0;
+    args.memory         = s;
+    a.procedure(args, e);
 }
 
-Raw_Allocation mem_alloc_non_zeroed(const Allocator &a, isize size, isize align)
+rawptr mem_alloc_non_zeroed(Allocator a, isize new_size, isize align, Allocator_Error *e)
 {
     // Nothing to do
     if (!a.procedure) {
-        return {nullptr, Allocator_Error::None};
+        return nullptr;
     }
-
-    Allocator_Proc_Args args;
-    args.old      = {nullptr, 0};
-    args.new_size = size;
-    args.align    = align;
-    return a.procedure(a.context, Allocator_Mode::Alloc_Non_Zeroed, args);
+    return mem__alloc(a, Allocator_Mode::Alloc_Non_Zeroed, new_size, align, e);
 }
 
-Raw_Allocation mem_resize_non_zeroed(const Allocator &a, const Raw_Slice &s, isize new_size, isize align)
+rawptr mem_resize_non_zeroed(Allocator a, Raw_Slice s, isize new_size, isize align, Allocator_Error *e)
 {
     // Nothing to do
     if (!s.data || !a.procedure) {
-        return {nullptr, Allocator_Error::None};
+        return nullptr;
     }
-
-    Allocator_Proc_Args args;
-    args.old      = s;
-    args.new_size = new_size;
-    args.align    = align;
-    return a.procedure(a.context, Allocator_Mode::Resize_Non_Zeroed, args);
+    return mem__resize(a, Allocator_Mode::Resize_Non_Zeroed, s, new_size, align, e);
 }
 
 #endif // ODIN_CPP_IMPLEMENTATION

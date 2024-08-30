@@ -31,7 +31,8 @@
         "xtr1common": "cpp",
         "cstdarg": "c",
         "iterator": "cpp",
-        "optional": "cpp"
+        "optional": "cpp",
+        "algorithm": "cpp"
     },
     "python.analysis.typeCheckingMode": "basic",
     "Lua.workspace.checkThirdParty": false

@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 using u8  = std::uint8_t;
 using u16 = std::uint16_t;
@@ -26,6 +27,8 @@ using byte  = u8;
 using usize = std::size_t;
 using isize = std::ptrdiff_t;
 
+using rawptr = void *;
+
 // Easier to grep
 #define cast(Type)                  (Type)
 #define unused(Expr)                cast(void)(Expr)
@@ -35,11 +38,15 @@ using isize = std::ptrdiff_t;
 
 template<class T>
 struct Slice {
+    
     using value_type      = T;
     using pointer         = value_type *;
     using reference       = value_type &;
+    using iterator        = pointer;
+    
     using const_pointer   = const value_type *;
     using const_reference = const value_type &;
+    using const_iterator  = const_pointer;
 
     pointer data;
     isize   len;
@@ -75,32 +82,85 @@ struct Slice {
     }
 };
 
+/**
+ * @brief
+ *      A slice of void is just raw memory. Here, `len` refers to the number of
+ *      bytes being pointed to.
+ *
+ * @note
+ *      We explicitly specialize for void since references to void will result
+ *      in a compile error.
+ */
+template<>
+struct Slice<void> {
+    
+    using value_type    = void;
+    using pointer       = value_type *;
+    using const_pointer = const value_type *;
+
+    pointer data;
+    isize   len;
+};
+
+/**
+ * @note
+ *      Valid for `Pointer<T>` as well.
+ */
+template<class T>
+isize len(const Slice<T> &self)
+{
+    return self.len;
+}
+
+template<class T>
+isize len(const Slice<T> *self)
+{
+    return self->len;
+}
+
+/**
+ * @brief
+ *      Our Pointer is just, conceptually, a fat pointer.
+ *      It wraps the `Slice` type by adding dereference operations.
+ */
 template<class T>
 struct Pointer : public Slice<T> {
-    
     using Base = Slice<T>;
+    using typename Base::pointer;
+    using typename Base::reference;
+    using typename Base::const_pointer;
+    using typename Base::const_reference;
 
     // read-write access index 0 (lvalue)
-    Base::reference operator*()
+    reference operator*()
     {
         return Base::operator[](0);
     }
 
-    Base::pointer operator->()
+    pointer operator->()
     {
         return &Base::operator[](0);
     }
     
     // read-only access index 0 (lvalue)
-    Base::const_reference operator*() const
+    const_reference operator*() const
     {
         return Base::operator[](0);
     }
 
-    Base::const_pointer operator->() const
+    const_pointer operator->() const
     {
         return &Base::operator[](0);
     }
 };
+
+/**
+ * @note
+ *      We explicitly specialize for void since one cannot have references to
+ *      void, which will cause a compile error.
+ */
+template<>
+struct Pointer<void> : public Slice<void>
+{};
 
 #include "allocator.hpp"

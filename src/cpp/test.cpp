@@ -5,43 +5,48 @@
 #include <cstdio>
 #include <cstring>
 
-static const Allocator generic_heap_allocator{
+static const Allocator heap_allocator{
     /**
      * @brief
      *      The standard C `malloc` family already ensures correct alignment and
      *      does book-keeping for us.
      */
-    [](void *ctx, Allocator_Mode mode, Allocator_Proc_Args args) -> Raw_Allocation
+    [](const Allocator_Proc_Args &args, Allocator_Error *e) -> rawptr
     {
         using Error = Allocator_Error;
         using Mode  = Allocator_Mode;
 
-        Error error{Error::None};
-        void *ptr{nullptr};
-        unused(ctx);
-
-        switch (mode) {
+        rawptr ptr{nullptr};
+        if (e) {
+            *e = Error::None;
+        }
+        switch (args.mode) {
         case Mode::Alloc:
         case Mode::Alloc_Non_Zeroed:
             ptr = std::malloc(args.new_size);
             goto check_allocation;
         case Mode::Resize:
         case Mode::Resize_Non_Zeroed:
-            ptr = std::realloc(args.old.data, args.new_size);
+            ptr = std::realloc(args.memory.data, args.new_size);
 
-            check_allocation: if (!ptr) {
-                error = Error::Out_Of_Memory;
-                std::fprintf(stderr, "[FATAL]: %s\n", "[Re]allocation failure");
-                std::fflush(stderr);
-                std::abort();
+            check_allocation:
+            if (!ptr) {
+                // User is interested in handling the error themselves?
+                if (e) {
+                    *e = Error::Out_Of_Memory;
+                } else {
+                    std::fprintf(stderr, "[FATAL]: %s\n", "[Re]allocation failure");
+                    std::fflush(stderr);
+                    std::abort();
+                }
             }
             break;
         case Mode::Free:
-            std::free(args.old.data);
+            std::free(args.memory.data);
             break;
         }
         
-        switch (mode) {
+        switch (args.mode) {
         case Mode::Alloc:
         case Mode::Resize:
             std::memset(ptr, 0, args.new_size);
@@ -51,7 +56,7 @@ static const Allocator generic_heap_allocator{
         case Mode::Resize_Non_Zeroed:
             break;
         }
-        return {ptr, error};
+        return ptr;
     },
     // Allocator::context
     nullptr,
@@ -59,14 +64,15 @@ static const Allocator generic_heap_allocator{
 
 int main()
 {
-    Pointer<int> pi = ptr_new<int>(generic_heap_allocator, 4);
-    *pi   = 13;
-    pi[1] = 14;
-    // pi[4] = 19;
-    std::printf("pi[0] = %i, pi[1] = %i\n", *pi, pi[1]);
-    std::printf("pi = %p, len(pi) = %ti\n", &pi[0], pi.len);
-    ptr_resize(generic_heap_allocator, &pi, 10);
-    std::printf("pi = %p, len(pi) = %ti\n", &pi[0], pi.len);
-    ptr_free(generic_heap_allocator, &pi);
+    Pointer<int> ptr_i = ptr_new<int>(heap_allocator, 4);
+
+    *ptr_i   = 13;
+    ptr_i[1] = 14;
+
+    std::printf("ptr_i[0] = %i, ptr_i[1] = %i\n", *ptr_i, ptr_i[1]);
+    std::printf("ptr_i = %p, len(ptr_i) = %ti\n", &ptr_i[0], len(ptr_i));
+    ptr_resize(heap_allocator, &ptr_i, 10);
+    std::printf("ptr_i = %p, len(ptr_i) = %ti\n", &ptr_i[0], len(ptr_i));
+    ptr_free(heap_allocator, &ptr_i);
     return 0;
 }

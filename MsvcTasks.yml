@@ -1,8 +1,10 @@
 version: '3'
 
+# TODO: figure out how to set object file output dir for clang-cl
 vars:
-  COMMON_FLAGS: >-
-    -nologo -W4 -WX -std:c++17 -EHsc -permissive- -Zc:preprocessor -Zc:__cplusplus
+  CXX: clang-cl
+  CL_FLAGS: >-
+    -nologo -W4 -WX -std:c++17 -EHsc -permissive- -Fe:"{{.OUT_EXE}}"
   DEBUG_FLAGS: -Od -Zi -Fd:"{{.BIN}}/" -fsanitize=address -DDEBUG_USE_ASSERT
   RELEASE_FLAGS: -O1
   
@@ -12,7 +14,7 @@ tasks:
       - task: build
 
   build:
-    desc: Builds the executable.
+    desc: Builds the C++ executable.
     deps:
       - task: :dirs
     vars:
@@ -21,7 +23,7 @@ tasks:
       _SOURCES:
         sh: ls -1 '{{.SRC}}' | grep 'cpp$' | awk '{print "{{.SRC}}/" $0}'
       IN_SRC: '{{._SOURCES | replace "\n" " "}}'
-      FLAGS: >-
+      CXX_FLAGS: >-
         {{if eq .MODE "debug"}}
         {{.DEBUG_FLAGS}}
         {{else if eq .MODE "release"}}
@@ -30,7 +32,7 @@ tasks:
         {{fail "MODE must be one of `debug release`"}}
         {{end}}
     cmds:
-      - 'cl {{.COMMON_FLAGS}} {{.FLAGS}} -Fe:"{{.OUT_EXE}}" -Fo:"{{.OBJ}}/" {{.IN_SRC}}'
+      - '{{.CXX}} {{.CL_FLAGS}} {{.CXX_FLAGS}} {{.IN_SRC}}'
     requires:
       vars: [MODE, OUT_EXE]
     # Seems '{cpp,hpp}' or `[ch]pp` doesn't work with Windows
@@ -41,7 +43,7 @@ tasks:
       - '{{.OUT_EXE}}'
   
   run:
-    desc: '[Re]uild the executable if needed then run it.'
+    desc: '[Re]build the C++ executable if needed then run it.'
     deps:
       - task: build
     cmds:
