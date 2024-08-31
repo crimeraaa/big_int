@@ -1,12 +1,24 @@
 version: '3'
 
-# TODO: figure out how to set object file output dir for clang-cl
+# NOTE: `Fo` doesn't accept nor require ':' but `Fe` and `Fd` do.
 vars:
   CXX: clang-cl
-  CL_FLAGS: >-
-    -nologo -W4 -WX -std:c++17 -EHsc -permissive- -Fe:"{{.OUT_EXE}}"
-  DEBUG_FLAGS: -Od -Zi -Fd:"{{.BIN}}/" -fsanitize=address -DDEBUG_USE_ASSERT
-  RELEASE_FLAGS: -O1
+  CXX_COMMON_FLAGS: >-
+    -nologo
+    -W4
+    -WX
+    -std:c++17
+    -EHsc
+    -permissive-
+    -Fe:"{{.OUT_EXE}}"
+    -Fo"{{.OBJ}}/"
+  CXX_DEBUG_FLAGS: >-
+    -Od
+    -Zi
+    -Fd:"{{.BIN}}/"
+    -fsanitize=address
+    -DDEBUG_USE_ASSERT
+  CXX_RELEASE_FLAGS: -O1
   
 tasks:
   default:
@@ -22,17 +34,18 @@ tasks:
       # cannot glob
       _SOURCES:
         sh: ls -1 '{{.SRC}}' | grep 'cpp$' | awk '{print "{{.SRC}}/" $0}'
-      IN_SRC: '{{._SOURCES | replace "\n" " "}}'
+      CXX_SOURCES: '{{._SOURCES | replace "\n" " "}}'
       CXX_FLAGS: >-
+        {{.CXX_COMMON_FLAGS}}
         {{if eq .MODE "debug"}}
-        {{.DEBUG_FLAGS}}
+        {{.CXX_DEBUG_FLAGS}}
         {{else if eq .MODE "release"}}
-        {{.RELEASE_FLAGS}}
+        {{.CXX_RELEASE_FLAGS}}
         {{else}}
         {{fail "MODE must be one of `debug release`"}}
         {{end}}
     cmds:
-      - '{{.CXX}} {{.CL_FLAGS}} {{.CXX_FLAGS}} {{.IN_SRC}}'
+      - '{{.CXX}} {{.CXX_FLAGS}} {{.CXX_SOURCES}}'
     requires:
       vars: [MODE, OUT_EXE]
     # Seems '{cpp,hpp}' or `[ch]pp` doesn't work with Windows
