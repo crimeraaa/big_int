@@ -3,10 +3,17 @@ version: '3'
 vars:
   HELP: |
     Usage:
-      task <task> [MODE=<mode>]
+      task <task> [LANG=<lang>] [MODE=<mode>]
+
+    LANG is one of:
+      c (default)
+      cpp
+
+    NOTE: LANG is only used for the MSVC build.
+
     MODE is one of:
-      debug release
-    MODE defaults to debug.
+      debug (default)
+      release
 
 env:
   # Directories
@@ -14,13 +21,23 @@ env:
   OBJ: obj
   BIN: bin
   MODE: debug
+  LANG: c
 
 # https://taskfile.dev/usage/#including-other-taskfiles
 includes:
   msvc:
     taskfile: MsvcTasks.yml
     vars:
-      SRC: '{{.SRC}}/cpp'
+      SRC: '{{.SRC}}/{{.LANG}}'
+      EXT_SOURCE: '{{.LANG}}'
+      EXT_HEADER: >-
+        {{if eq .LANG "cpp"}}
+        {{"hpp"}}
+        {{else if eq .LANG "c"}}
+        {{"h"}}
+        {{else}}
+        {{fail "LANG must be one of `c cpp`"}}
+        {{end}}
       OUT_EXE: '{{.BIN}}/msvc-out{{exeExt}}'
 
   odin:
@@ -52,4 +69,3 @@ tasks:
   dirs: mkdir -p {{.OBJ}} {{.BIN}}
 
   cleanup: rm -rf {{.OBJ}} {{.BIN}}
-  

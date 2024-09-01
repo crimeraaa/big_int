@@ -2,62 +2,77 @@ version: '3'
 
 # NOTE: `Fo` doesn't accept nor require ':' but `Fe` and `Fd` do.
 vars:
-  CXX: clang-cl
-  CXX_COMMON_FLAGS: >-
+  COMPILER: clang-cl
+  STANDARD: >-
+    {{if eq .LANG "c"}}
+    {{"-std:c11"}}
+    {{else if eq .LANG "cpp"}}
+    {{"-std:c++17"}}
+    {{else}}
+    {{fail "LANG must be one of `c cpp`"}}
+    {{end}}
+  COMMON_FLAGS: >-
     -nologo
     -W4
     -WX
-    -std:c++17
+    -Wno-error=gnu-alignof-expression
+    {{.STANDARD}}
     -EHsc
     -permissive-
     -Fe:"{{.OUT_EXE}}"
     -Fo"{{.OBJ}}/"
-  CXX_DEBUG_FLAGS: >-
+  DEBUG_FLAGS: >-
     -Od
     -Zi
     -Fd:"{{.BIN}}/"
     -fsanitize=address
     -DDEBUG_USE_ASSERT
-  CXX_RELEASE_FLAGS: -O1
+  RELEASE_FLAGS: -O1
   
 tasks:
   default:
+    silent: true
     cmds:
       - task: build
 
   build:
-    desc: Builds the C++ executable.
+    desc: Builds the C or C++ executable.
     deps:
       - task: :dirs
     vars:
       # Hack as long as `sources` is not supported in a variable and Windows CMD
       # cannot glob
       _SOURCES:
-        sh: ls -1 '{{.SRC}}' | grep 'cpp$' | awk '{print "{{.SRC}}/" $0}'
-      CXX_SOURCES: '{{._SOURCES | replace "\n" " "}}'
-      CXX_FLAGS: >-
-        {{.CXX_COMMON_FLAGS}}
+        sh: ls -1 '{{.SRC}}' | grep '{{.EXT_SOURCE}}$' | awk '{print "{{.SRC}}/" $0}'
+      SOURCES: '{{._SOURCES | replace "\n" " "}}'
+      COMPILER_FLAGS: >-
+        {{.COMMON_FLAGS}}
         {{if eq .MODE "debug"}}
-        {{.CXX_DEBUG_FLAGS}}
+        {{.DEBUG_FLAGS}}
         {{else if eq .MODE "release"}}
-        {{.CXX_RELEASE_FLAGS}}
+        {{.RELEASE_FLAGS}}
         {{else}}
         {{fail "MODE must be one of `debug release`"}}
         {{end}}
     cmds:
-      - '{{.CXX}} {{.CXX_FLAGS}} {{.CXX_SOURCES}}'
+      - '{{.COMPILER}} {{.COMPILER_FLAGS}} {{.SOURCES}}'
     requires:
-      vars: [MODE, OUT_EXE]
+      vars: [LANG, MODE, OUT_EXE]
     # Seems '{cpp,hpp}' or `[ch]pp` doesn't work with Windows
     sources:
-      - '{{.SRC}}/*.cpp'
-      - '{{.SRC}}/*.hpp'
+      - '{{.SRC}}/*.{{.EXT_SOURCE}}'
+      - '{{.SRC}}/*.{{.EXT_HEADER}}'
     generates:
       - '{{.OUT_EXE}}'
   
   run:
-    desc: '[Re]build the C++ executable if needed then run it.'
+    desc: '[Re]build the C or C++ executable if needed then run it.'
     deps:
       - task: build
     cmds:
       - '{{.OUT_EXE}}'
+  
+  # Seems globbing works here even on Windows?
+  clean:
+    cmds:
+      - rm -f {{.BIN}}/*.{exe,exp,lib,pdb} {{.OBJ}}/*.obj

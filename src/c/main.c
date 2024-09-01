@@ -1,313 +1,148 @@
-/// local
-#define ALLOCATOR_INCLUDE_IMPLEMENTATION
-#define ANSI_INCLUDE_IMPLEMENTATION
-#define BIGINT_INCLUDE_IMPLEMENTATION
-#define LOG_INCLUDE_IMPLEMENTATION
-#include "bigint.h"
+#include "everything.h"
 
-static void test_add(int addend1, int addend2)
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+static void *heap_allocator_proc(void *udata, const Allocator_Proc_Args *args)
 {
-    BigInt *dst, *x, *y;
-    log_traceargs("addend1=%i, addend2=%i", addend1, addend2);
-    dst = bigint_new(8);
-    x   = bigint_set_int(addend1);
-    y   = bigint_set_int(addend2);
-
-    bigint_add(dst, x, y);
-    bigint_print(dst);
-    printfln("expected: %i + %i = %i", addend1, addend2, addend1 + addend2);
-
-    bigint_free(&dst);
-    bigint_free(&x);
-    bigint_free(&y);
+    void *new_ptr = NULL;
+    unused(udata);
+    switch (args->mode) {
+    case ALLOCATOR_MODE_ALLOC:
+        new_ptr = malloc(args->new_size);
+        goto check_ptr;
+    case ALLOCATOR_MODE_RESIZE:
+        new_ptr = realloc(args->old_ptr, args->new_size);
+        check_ptr:
+        if (!new_ptr) {
+            fprintf(stderr, "[FATAL]: %s\n", "[Re]allocation failure!");
+            fflush(stderr);
+            abort();
+        }
+        Slice(byte) region = {
+            cast(byte *)new_ptr + args->old_size,
+            args->new_size - args->old_size
+        };
+        // Zero out the new region, only if we grew.
+        if (region.len > 0) {
+            memset(region.data, 0, region.len);
+        }
+        break;
+    case ALLOCATOR_MODE_FREE:
+        // printf("bye %p\n", args->old_ptr); //!DEBUG
+        free(args->old_ptr);
+        break;
+    }
+    return new_ptr;
 }
 
-static void test_sub(int minuend, int subtrahend)
-{
-    BigInt *dst, *x, *y;
-    log_traceargs("minued=%i, subtrahend=%i", minuend, subtrahend);
-    dst = bigint_new(8);
-    x   = bigint_set_int(minuend);
-    y   = bigint_set_int(subtrahend);
+static const Allocator heap_allocator = {&heap_allocator_proc, NULL};
 
-    bigint_sub(dst, x, y);
-    bigint_print(dst);
-    printfln("expected: %i - %i = %i", minuend, subtrahend, minuend - subtrahend);
-    bigint_free(&y);
-    bigint_free(&x);
-    bigint_free(&dst);
+static void string_builder_print(const String_Builder *self)
+{
+    const Dynamic_Header *hd = &self->header;
+    printf("String_Builder{header{len=%ti, cap=%ti}, data=\"%s\"}\n",
+            hd->len, hd->cap, self->data);
 }
 
 int main(void)
 {
-    atexit(&bigint_library_free);
+    String_Builder bd;
 
-    log_debugln("NOTE: Simple addition");
-    test_add(1, 4);        //    5
-    test_add(9, 9);        //   18
-    test_add(13, 14);      //   27
-    test_add(33, 99);      //  132
-    test_add(1234, 5678);  // 6912
-    test_add(5678, 1234);  // 6912
+    // trust me
+    String s = string_literal("Hi!");
+    dynamic_array_init(&bd, &heap_allocator, s.len + 1);
+    string_builder_print(&bd);
+    dynamic_array__append(&bd.header, s.data, size_of(s.data[0]), s.len + 1, align_of(char));
+    string_builder_print(&bd);
 
-    log_debugln("NOTE: Simple subtraction");
-    test_sub(8, 4);      //  4
-    test_sub(4, 8);      // -4
-    test_sub(10, 4);     //  6
-    test_sub(95, 24);    // 71
-    test_sub(153, 78);   // 75
-    test_sub(9004, 297); // 8707
-    
-    // log_debugln("NOTE: Subtraction breaks here");
-    test_sub(11, 109);   // -98
-    test_sub(251, 367);  // -116
-    test_sub(251, 3670); // -3419
+    dynamic_array_reserve(&bd, 10);
+    string_builder_print(&bd);
+
+    dynamic_array_free(&bd);
     return 0;
 }
 
-#if false
-
-/// local
-#define ARENA_INCLUDE_IMPLEMENTATION
-#include "arena.h"
-#include "log.h"
-
-/// standard
-#include <setjmp.h>
-
-#define DEBUG_USE_LONGJMP
-
-// https://github.com/tsoding/arena/tree/master?tab=readme-ov-file#quick-start
-static Arena  main_arena    = {0};
-static Arena  scratch_arena = {0};
-static Arena *context_arena = &main_arena;
-
-#define context_alloc(T, ...)   arena_alloc(T, context_arena, __VA_ARGS__)
-#define context_realloc(T, ...) arena_realloc(T, context_arena, __VA_ARGS__)
-#define context_reset()         arena_reset(context_arena)
-#define push(T, da, v)          dynarray_push(T, da, v, context_arena)
-
-static void lstring_test(int argc, const char *argv[])
+void *raw_alloc(const Allocator *a, isize new_size, isize align)
 {
-    // 1D array of `StringView`.
-    StringView *args;
-    log_tracecall();
-    arena_print(context_arena);
-    args = context_alloc(StringView, argc);
-    arena_print(context_arena);
-    for (int i = 0; i < argc; i++) {
-        size  len  = strlen(argv[i]);
-        char *data = context_alloc(char, len + 1);
-        data[len]  = '\0';
-        args[i].data   = cast(char*, memcpy(data, argv[i], array_sizeof(data[0], len)));
-        args[i].length = len;
-    }
+    Allocator_Proc_Args args;
+    args.mode     = ALLOCATOR_MODE_ALLOC;
+    args.new_size = new_size;
+    args.align    = align;
+    args.old_ptr  = NULL;
+    args.old_size = 0;
+    return a->procedure(a->userdata, &args);
+}
+
+void *raw_resize(const Allocator *a, void *old_ptr, isize old_size, isize new_size, isize align)
+{
+    Allocator_Proc_Args args;
+    args.mode     = ALLOCATOR_MODE_RESIZE;
+    args.new_size = new_size;
+    args.align    = align;
+    args.old_ptr  = old_ptr;
+    args.old_size = old_size;
+    return a->procedure(a->userdata, &args);
+}
+
+void raw_free(const Allocator *a, void *old_ptr, isize old_size)
+{
+    Allocator_Proc_Args args;
+    args.mode     = ALLOCATOR_MODE_FREE;
+    args.new_size = 0;
+    args.align    = 0;
+    args.old_ptr  = old_ptr;
+    args.old_size = old_size;
+    a->procedure(a->userdata, &args);
+}
+
+void dynamic_array__init(Dynamic_Header *self, const Allocator *a, isize tp_size, isize count, isize tp_align)
+{
+    /**
+     * @warning
+     *      We assume the address of the `<struct>.data` pointer is found here.
+     *      Remember, we want the address of a pointer, not the pointer itself.
+     */
+    void **data = cast(void **)(self + 1);
+    self->allocator = a;
+    self->len       = 0;
+    self->cap       = count;
+    *data           = raw_alloc(a, tp_size * count, tp_align);
+}
+
+void dynamic_array__reserve(Dynamic_Header *self, isize tp_size, isize new_cap, isize tp_align)
+{
+    void **data     = cast(void **)(self + 1);
+    void  *old_ptr  = *data;
+    isize  old_cap  = self->cap;
+    isize  old_size = tp_size * old_cap;
+    isize  new_size = tp_size * new_cap;
+    void  *new_ptr  = raw_resize(self->allocator, old_ptr, old_size, new_size, tp_align);
     
-    for (int i = 0; i < argc; i++)
-        printf("StringView(length=%td,data=\"%s\")\n", args[i].length, args[i].data);
-    arena_print(context_arena);
-    arena_main(args, argc, context_arena);
+    self->cap = new_cap;
+    *data     = new_ptr;
 }
 
-static void famstring_test(int argc, const char *argv[])
+void dynamic_array__free(Dynamic_Header *self, isize size)
 {
-    FamString **args;
-    log_tracecall();
-    arena_print(context_arena);
-    // 1D array of `FamString*`.
-    args = context_alloc(FamString*, argc);
-    arena_print(context_arena);
-    for (int i = 0; i < argc; i++) {
-        FamString *buf;
-        size       len = strlen(argv[i]);
-        size       ex  = array_sizeof(buf->data[0], len + 1);
-
-        buf            = context_alloc(FamString, 1, ex);
-        buf->length    = len;
-        buf->data[len] = '\0';
-        memcpy(buf->data, argv[i], array_sizeof(buf->data[0], len));
-        args[i] = buf;
-    }
-    
-    for (int i = 0; i < argc; i++)
-        printf("FamString(length=%td, data=\"%s\")\n", args[i]->length, args[i]->data);
-    arena_print(context_arena);
+    void **data = cast(void **)(self + 1);
+    raw_free(self->allocator, *data, size * self->cap);
+    *data = NULL;
 }
 
-#define TEST_FILENAME   "all-star.txt"
-
-static const char *read_line(StringView *out, FILE *stream)
+void dynamic_array__append(Dynamic_Header *self, const void *value, isize tp_size, isize count, isize tp_align)
 {
-    // Allow us to view empty strings until we have user input to allocate.
-    static char init[] = "";
-    Buffer b;
-
-    log_tracecall();
-    // It's better to use a singular arena for a single dynamic buffer so that
-    // we can guarantee resizes will always just be incrementing counts.
-    context_arena = &scratch_arena;
-    context_reset();
-    
-    b.data     = init;
-    b.length   = 0;
-    b.capacity = array_countof(init);
-    for (;;) {
-        int ch = fgetc(stream);
-        if (ch == EOF || ch == '\n')
-            break;
-        push(char, &b, cast(char, ch));
+    isize old_cap = self->cap;
+    isize old_len = self->len;
+    isize new_len = old_len + count;
+    if (new_len > old_cap) {
+        isize new_cap = (old_cap < 8) ? 8 : old_cap * 2;
+        dynamic_array__reserve(self, tp_size, new_cap, tp_align);
     }
-    // Only allocate to the main arena after we're done with the dynamic stuff.
-    context_arena = &main_arena;
-
-    if (ferror(stream)) {
-        *out = sv_literal("(ERROR)");
-        return nullptr;
-    } else if (feof(stream)) {
-        // TODO: May break for files w/o newline terminating very last line
-        *out = sv_literal("(EOF)");
-        return nullptr;
-    } else {
-        out->data   = b.data;
-        out->length = b.length;
-        return b.data;
-    }
+    // Load only here as `reserve()` may have reallocated the pointer.
+    // This time we want the pointer itself, not the address thereof.
+    byte *data = *(cast(byte **)(self + 1));
+    memcpy(&data[tp_size * old_len], value, tp_size * count);
+    self->len = new_len;
 }
-
-static StringList *read_file(const char *name)
-{ 
-    FILE        *fp;
-    StringList  *head = nullptr;
-    StringList **tail = &head;
-    StringView   line;
-    log_tracecall();
-
-    fp = fopen(name, "r");
-    if (!fp) {
-        eprintfln("Failed to open file '%s'", name);
-        return nullptr;
-    }
-    // Forward iteration using only a singly-linked list!
-    while (read_line(&line, fp)) {
-        StringList *next;
-        size        ex = array_sizeof(next->data[0], line.length + 1);
-
-        next         = context_alloc(StringList, 1, ex);
-        next->next   = *tail;
-        next->length = line.length;
-
-        memcpy(next->data, line.data, array_sizeof(next->data[0], line.length));
-        next->data[line.length] = '\0';
-        
-        // Iteration
-        *tail = next;
-        tail  = &next->next;
-    }
-    fclose(fp);
-    return head;
-}
-
-// https://nullprogram.com/blog/2023/10/05/
-I32Array fibonacci(i32 max)
-{
-    static i32 init[] = {0, 1};
-    I32Array   fib;
-
-    log_tracecall();
-    fib.data     = init;
-    fib.length   = array_countof(init); 
-    fib.capacity = fib.length;
-    for (;;) {
-        i32 a = fib.data[fib.length - 2];
-        i32 b = fib.data[fib.length - 1];
-        if (a + b > max)
-            break;
-        push(i32, &fib, a + b);
-        
-    }
-    return fib;
-}
-
-#define DEBUG_MARK(expr)                                                       \
-do {                                                                           \
-    log_debugln("===BEGIN===");                                                \
-    expr;                                                                      \
-    log_debugln("===END===\n");                                                \
-} while (false)
-
-#ifdef DEBUG_USE_LONGJMP
-
-static void handle_error(Arena *self, const char *msg, size sz, void *ctx)
-{
-    jmp_buf *e = cast(jmp_buf*, ctx);
-    unused(self);
-    log_fatalf("%s (requested %td bytes)", msg, sz);
-    longjmp(*e, 1);
-}
-
-#endif  // DEBUG_USE_LONGJMP
-
-static void cleanup_arenas(void)
-{
-    arena_free(&scratch_arena);
-    arena_free(&main_arena);    
-}
-
-int main(int argc, const char *argv[])
-{
-    ArenaArgs scratch_init = arena_defaultargs();
-    scratch_init.capacity  = 256;
-    atexit(&cleanup_arenas);
-    log_tracecall();
-#ifdef DEBUG_USE_LONGJMP
-    jmp_buf err;
-    if (setjmp(err) == 0) {
-        ArenaArgs main_init  = arena_defaultargs();
-        scratch_init.handler = main_init.handler = &handle_error;
-        scratch_init.context = main_init.context = &err;
-        scratch_init.flags   = main_init.flags  ^= ARENA_FZEROINIT | ARENA_FALIGN;
-#endif
-        arena_init(&main_arena, nullptr);
-        arena_init(&scratch_arena, &scratch_init);
-
-        DEBUG_MARK(lstring_test(argc, argv));
-        DEBUG_MARK({
-            context_reset();
-            famstring_test(argc, argv);
-        });
-        DEBUG_MARK({
-            int i = 1;
-            context_reset();
-            for (const StringList *it = read_file(TEST_FILENAME);
-                 it != nullptr;
-                 it = it->next)
-            {
-                printfln("%02i: %s", i++, it->data);
-            }
-            arena_print(&scratch_arena);
-            arena_print(&main_arena);
-        });
-        
-        DEBUG_MARK({
-            context_arena = &scratch_arena;
-            context_reset();
-            // If we pass INT32_MAX itself, a + b > max may overflow!
-            const I32Array ia = fibonacci(INT32_MAX / 2);
-            for (size i = 0; 0 <= i && i < ia.length; i++) {
-                if (0 < i && i < ia.length) {
-                    printf(", ");
-                }
-                printf("%i", ia.data[i]);
-            }
-            context_arena = &main_arena;
-            println("");
-        });
-#ifdef DEBUG_USE_LONGJMP
-    } else {
-        return EXIT_FAILURE;
-    }
-#endif  // DEBUG_USE_LONGJMP
-    return 0;
-}
-
-#endif // false
