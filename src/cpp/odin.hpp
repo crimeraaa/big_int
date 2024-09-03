@@ -9,6 +9,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include <functional> // needed for defer
+
 // Uncomment this if you want array/slice indexing operations to not check.
 // #define NO_BOUNDS_CHECK
 
@@ -30,6 +32,8 @@ using rawptr  =       void *;
 #define size_of(Expr)           static_cast<isize>(sizeof(Expr))
 #define align_of(Type)          static_cast<isize>(alignof(Type))
 #define offset_of(Type, Memb)   static_cast<isize>(offsetof(Type, Memb))
+
+isize math_next_power_of_2(isize start);
 
 enum class Allocator_Mode : u8 {
     Alloc,
@@ -73,10 +77,10 @@ extern const Allocator heap_allocator;
 
 #endif // ODIN_NOSTDLIB
 
-void *allocator_alloc   (Allocator a, isize size, isize align);
-void *allocator_resize  (Allocator a, void *ptr, isize old_size, isize new_size, isize align);
-void  allocator_free    (Allocator a, void *ptr, isize size);
-void  allocator_free_all(Allocator a);
+void *allocator_alloc(Allocator a, isize size, isize align);
+void *allocator_resize(Allocator a, void *ptr, isize old_size, isize new_size, isize align);
+void allocator_free(Allocator a, void *ptr, isize size);
+void allocator_free_all(Allocator a);
 
 template<class T>
 T *rawptr_new(const Allocator &a)
@@ -149,9 +153,21 @@ struct Slice {
 };
 
 template<class T>
+Slice<T> slice(T *ptr, isize count)
+{
+    #if !defined(NO_BOUNDS_CHECK)
+        assert(0 <= count);
+    #endif
+    return {ptr, count};
+}
+
+template<class T>
 Slice<T> slice(T *ptr, isize count, isize start, isize stop)
 {
-    assert(0 <= start && start <= stop && stop <= count);
+    #if !defined(NO_BOUNDS_CHECK)
+        assert(0 <= start && start <= stop && stop <= count);
+    #endif
+
     Slice<T> out{nullptr, 0};
     isize    len = stop - start;
     if (len > 0) {
@@ -165,18 +181,6 @@ template<class T>
 Slice<T> slice(const Slice<T> &self, isize start, isize stop)
 {
     return slice(begin(self), len(self), start, stop);
-}
-
-template<class T>
-Slice<const T> slice_const(const Slice<T> &self, isize start, isize stop)
-{
-    return slice<const T>(cbegin(self), len(self), start, stop);
-}
-
-template<class T>
-Slice<const T> slice_const_cast(const Slice<T> &self)
-{
-    return {cbegin(self), len(self)};
 }
 
 template<class T>
@@ -233,12 +237,6 @@ template<class T>
 Slice<T> slice(const Array<T> &self, isize start, isize stop)
 {
     return slice(begin(self), len(self), start, stop);
-}
-
-template<class T>
-Slice<const T> slice_const(const Array<T> &self, isize start, isize stop)
-{
-    return slice<const T>(cbegin(self), len(self), start, stop);
 }
 
 template<class T>
@@ -299,7 +297,7 @@ void array_resize(Array<T> *self, isize new_len)
 template<class T>
 void array_grow(Array<T> *self)
 {
-    array_reserve(self, (self->cap < 8) ? 8 : self->cap * 2);
+    array_reserve(self, (self->cap < 8) ? 8 : math_next_power_of_2(self->cap));
 }
 
 template<class T>
@@ -307,15 +305,16 @@ void array_reserve(Array<T> *self, isize new_cap)
 {
     isize old_cap = cap(self);
     // Nothing to do
-    if (new_cap == old_cap) {
+    if (new_cap <= old_cap) {
         return;
     }
     
-    T *   old_data = self->data;
-    isize old_size = size_of(T) * old_cap;
-    isize new_size = size_of(T) * new_cap;
-    
-    self->data = static_cast<T *>(allocator_resize(self->allocator, old_data, old_size, new_size, align_of(T)));
+    self->data = static_cast<T *>(allocator_resize(
+        self->allocator,
+        self->data,
+        size_of(T) * old_cap,
+        size_of(T) * new_cap,
+        align_of(T)));
     self->cap  = new_cap;
 }
 
@@ -325,6 +324,12 @@ void array_free(Array<T> *self)
     allocator_free(self->allocator, self->data, size_of(T) * self->cap);
     self->data = nullptr;
     self->len  = self->cap = 0;
+}
+
+template<class T>
+void array_clear(Array<T> *self)
+{
+    self->len = 0;
 }
 
 template<class T>
@@ -342,13 +347,7 @@ void array_append(Array<T> *self, const Slice<const T> &values)
     isize old_len = len(self);
     isize new_len = old_len + len(values);
     if (new_len > cap(self)) {
-        // Get next power of 2
-        isize n = 1;
-        while (n < new_len) {
-            n *= 2;
-        }
-        new_len = n;
-        array_reserve(self, new_len);
+        array_reserve(self, math_next_power_of_2(new_len));
     }
 
     for (isize i = 0; i < len(values); i++) {
@@ -526,7 +525,41 @@ const T *cend(const Slice<T> *self)
 
 ///--- 1}}} --------------------------------------------------------------------
 
+struct _private_defer {
+    _private_defer(std::function<void (void)> &&callback)
+    : m_callback{callback}
+    {}
+
+    ~_private_defer()
+    {
+        m_callback();
+    }
+    std::function<void (void)> m_callback;
+};
+
+#define X__STRINGIFY(x) #x
+#define STRINGIFY(x)    X__STRINGIFY(x)
+
+#define X__defer1(name, suffix) name ##suffix
+#define X__defer2(name, suffix) X__defer1(name, suffix)
+#define X__defer3(name)         X__defer2(name, __COUNTER__)
+
+/**
+ * @see
+ *      https://github.com/gingerBill/gb/blob/master/gb.h#L636
+ */
+#define defer(body) auto X__defer3(_defer_) = _private_defer([&]()->void {body;})
+
 #ifdef ODIN_IMPLEMENTATION
+
+isize math_next_power_of_2(isize start)
+{
+    isize stop = 1;
+    while (stop < start) {
+        stop *= 2;
+    }
+    return stop;
+}
 
 #ifndef ODIN_NOSTDLIB
 

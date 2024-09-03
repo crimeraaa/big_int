@@ -1,7 +1,7 @@
 version: '3'
 
 vars:
-  HELP: |
+  USAGE: |
     Usage:
       task <task> [LANG=<lang>] [MODE=<mode>]
 
@@ -30,11 +30,10 @@ includes:
     vars:
       SRC: '{{.SRC}}/{{.LANG}}'
       EXT_SOURCE: '{{.LANG}}'
+      # Ugly but need due to significant whitespace because screw you. See:
+      #   https://yaml-multiline.info/
       EXT_HEADER: >-
-        {{if eq .LANG "cpp"}}
-        {{"hpp"}}
-        {{else if eq .LANG "c"}}
-        {{"h"}}
+        {{if eq .LANG "cpp"}}{{"hpp"}}{{else if eq .LANG "c"}}{{"h"}}
         {{else}}
         {{fail "LANG must be one of `c cpp`"}}
         {{end}}
@@ -63,7 +62,7 @@ tasks:
     silent: true
     cmds:
       - |
-        printf '{{.HELP}}'
+        printf '{{.USAGE}}'
         task --list
   
   dirs: mkdir -p {{.OBJ}} {{.BIN}}

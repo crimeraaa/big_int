@@ -4,10 +4,7 @@ version: '3'
 vars:
   COMPILER: clang-cl
   STANDARD: >-
-    {{if eq .LANG "c"}}
-    {{"-std:c11"}}
-    {{else if eq .LANG "cpp"}}
-    {{"-std:c++17"}}
+    {{if eq .LANG "c"}}{{"c11"}}{{else if eq .LANG "cpp"}}{{"c++17"}}
     {{else}}
     {{fail "LANG must be one of `c cpp`"}}
     {{end}}
@@ -16,7 +13,7 @@ vars:
     -W4
     -WX
     -Wno-error=gnu-alignof-expression
-    {{.STANDARD}}
+    -std:{{.STANDARD}}
     -EHsc
     -permissive-
     -Fe:"{{.OUT_EXE}}"
@@ -44,7 +41,7 @@ tasks:
       # cannot glob
       _SOURCES:
         sh: ls -1 '{{.SRC}}' | grep '{{.EXT_SOURCE}}$' | awk '{print "{{.SRC}}/" $0}'
-      SOURCES: '{{._SOURCES | replace "\n" " "}}'
+      SOURCES: '{{._SOURCES | catLines}}'
       COMPILER_FLAGS: >-
         {{.COMMON_FLAGS}}
         {{if eq .MODE "debug"}}
@@ -55,6 +52,7 @@ tasks:
         {{fail "MODE must be one of `debug release`"}}
         {{end}}
     cmds:
+      - echo SRC='{{.SRC}}' EXT_SOURCE='{{.EXT_SOURCE}}' EXT_HEADER='{{.EXT_HEADER}}'
       - '{{.COMPILER}} {{.COMPILER_FLAGS}} {{.SOURCES}}'
     requires:
       vars: [LANG, MODE, OUT_EXE]
@@ -70,7 +68,7 @@ tasks:
     deps:
       - task: build
     cmds:
-      - '{{.OUT_EXE}}'
+      - '{{.OUT_EXE}} {{.CLI_ARGS}}'
   
   disasm:
     desc: 'Disassemble something. NOTE: Still being tested!'

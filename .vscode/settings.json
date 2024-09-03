@@ -32,7 +32,8 @@
         "cstdarg": "c",
         "iterator": "cpp",
         "optional": "cpp",
-        "algorithm": "cpp"
+        "algorithm": "cpp",
+        "functional": "cpp"
     },
     "python.analysis.typeCheckingMode": "basic",
     "Lua.workspace.checkThirdParty": false
