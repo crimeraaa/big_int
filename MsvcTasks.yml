@@ -72,6 +72,49 @@ tasks:
     cmds:
       - '{{.OUT_EXE}}'
   
+  disasm:
+    desc: 'Disassemble something. NOTE: Still being tested!'
+    vars:
+      OBJDUMP: llvm-objdump
+      # NOTE: Seems the commas break objdump, so the next least worst thing is
+      # to just use the mangled names...
+      # --disassemble-symbols='{{.OBJDUMP_SYMBOLS | join ","}}'
+      OBJDUMP_SYMBOLS: [
+        "void * __cdecl allocator_alloc(struct Allocator, __int64, int__64)",
+        "void * __cdecl allocator_resize(struct Allocator, void *, __int64, __int64, __int64)",
+        void __cdecl allocator_free_all(struct Allocator),
+        main,
+      ]
+      OBJDUMP_FLAGS: >-
+        --reloc
+        --dynamic-reloc
+        --demangle
+        --debug-vars
+        --line-numbers
+        --disassembler-options=intel
+        --no-show-raw-insn
+        --source
+        --symbol-description
+        --symbolize-operands
+    cmds:
+      - '{{.OBJDUMP}} {{.OBJDUMP_FLAGS}} "{{.OBJ}}/main.obj" | less'
+    interactive: true
+  
+  list-symbols:
+    desc: Dump the symbols table for all the generated object files.
+    vars:
+      NM: llvm-nm
+      NM_FLAGS: >-
+        --demangle
+        --line-numbers
+        --no-sort
+      _OBJECTS:
+        sh: ls -1 '{{.OBJ}}' | grep 'obj$' | awk '{print "{{.OBJ}}/" $0}'
+      OBJECTS: '{{._OBJECTS | replace "\n" " "}}'
+    cmds:
+      - '{{.NM}} {{.NM_FLAGS}} {{.OBJECTS}} | less'
+    interactive: true
+  
   # Seems globbing works here even on Windows?
   clean:
     cmds:

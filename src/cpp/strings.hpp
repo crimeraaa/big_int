@@ -1,8 +1,6 @@
 #pragma once
 
 #include "odin.hpp"
-#include "mem.hpp"
-#include "array.hpp"
 
 using String = Slice<const char>;
 

@@ -1,3 +1,20 @@
 # Compiled Python 3 bytecode, likely architecture-specific
 __pycache__
+
+# Taskfile cache
 .task
+
+# Generated
+bin/
+obj/
+
+# Testingo only!
+tmp/
+
+# MSVC Generated Files
+*.exe
+*.obj
+*.dll
+*.lib
+*.exp
+*.pdb

@@ -21,7 +21,7 @@ env:
   OBJ: obj
   BIN: bin
   MODE: debug
-  LANG: c
+  LANG: cpp
 
 # https://taskfile.dev/usage/#including-other-taskfiles
 includes:
