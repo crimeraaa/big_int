@@ -2,11 +2,6 @@
 
 #include <cstring>
 
-String string_from_cstring(cstring c_str)
-{
-    return {c_str, len(c_str)};
-}
-
 isize len(cstring c_str)
 {
     const char *start = c_str;
@@ -15,6 +10,11 @@ isize len(cstring c_str)
         stop++;
     }
     return stop - start;
+}
+
+String string_from_cstring(cstring c_str)
+{
+    return {c_str, len(c_str)};
 }
 
 isize cstring_find_first_index_char(cstring c_str, char ch)
@@ -46,7 +46,7 @@ isize string_find_first_index_char(const String &self, char ch)
 
 isize string_find_first_index_any(const String &self, cstring set)
 {
-    return string_find_first_index_any(self, {set, len(set)});
+    return string_find_first_index_any(self, string_from_cstring(set));
 }
 
 isize string_find_first_index_any(const String &self, const String &set)

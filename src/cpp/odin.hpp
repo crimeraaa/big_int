@@ -9,8 +9,6 @@
 #include <cstddef>
 #include <cstdint>
 
-#include <functional> // needed for defer
-
 // Uncomment this if you want array/slice indexing operations to not check.
 // #define NO_BOUNDS_CHECK
 
@@ -32,6 +30,13 @@ using rawptr  =       void *;
 #define size_of(Expr)           static_cast<isize>(sizeof(Expr))
 #define align_of(Type)          static_cast<isize>(alignof(Type))
 #define offset_of(Type, Memb)   static_cast<isize>(offsetof(Type, Memb))
+
+#define X__STRINGIFY(x) #x
+#define STRINGIFY(x)    X__STRINGIFY(x)
+
+#define X__NAME_COUNTER_2(name, suffix) name ##suffix
+#define X__NAME_COUNTER_1(name, suffix) X__NAME_COUNTER_2(name, suffix)
+#define NAME_COUNTER(name)              X__NAME_COUNTER_1(name, __COUNTER__)
 
 isize math_next_power_of_2(isize start);
 
@@ -91,7 +96,7 @@ T *rawptr_new(const Allocator &a)
 template<class T>
 void rawptr_free(const Allocator &a, T *ptr)
 {
-    allocator_free(a, static_cast<void *>(ptr), size_of(T));
+    allocator_free(a, ptr, size_of(T));
 }
 
 template<class T>
@@ -111,7 +116,7 @@ T *rawarray_resize(const Allocator &a, T *array, isize old_len, isize new_len)
 template<class T>
 void rawarray_free(const Allocator &a, T *array, isize count)
 {
-    allocator_free(a, static_cast<void *>(array), size_of(T) * count);
+    allocator_free(a, array, size_of(T) * count);
 }
 
 /**
@@ -368,81 +373,69 @@ T array_pop(Array<T> *self)
 {
     // Can't pop if nothing to pop!
     assert(self->len != 0);
-    isize index = self->len - 1;
-    self->len   = index;
-    return self->data[index];
+    isize i   = self->len - 1;
+    self->len = i;
+    return self->data[i];
 }
 
 ///--- GLOBAL UTILITY ----------------------------------------------------- {{{1
 
 ///--- REFERENCE ---------------------------------------------------------- {{{2
 
-template<class T>
-isize len(const Slice<T> &self)
+template<template<class> class Container, class Data>
+isize len(const Container<Data> &self)
 {
     return self.len;
 }
 
-template<class T>
-isize len(const Array<T> &self)
-{
-    return self.len;
-}
-
-template<class T>
-isize cap(const Array<T> &self)
+template<template<class> class Container, class Data>
+isize cap(const Container<Data> &self)
 {
     return self.cap;
 }
 
 ///--- ITERATORS ---------------------------------------------------------- {{{3
 
-template<class T>
-T *begin(const Array<T> &self)
+template<template<class> class Container, class Data>
+Data *begin(const Container<Data> &self)
 {
     return self.data;
 }
 
-template<class T>
-T *end(const Array<T> &self)
+template<template<class> class Container, class Data>
+Data *end(const Container<Data> &self)
 {
     return self.data + self.len;
 }
 
-template<class T>
-const T *cbegin(const Array<T> &self)
+template<template<class> class Container, class Data>
+const Data *cbegin(const Container<Data> &self)
 {
     return self.data;
 }
 
-template<class T>
-const T *cend(const Array<T> &self)
+template<template<class> class Container, class Data>
+const Data *cend(const Container<Data> &self)
 {
     return self.data + self.len;
 }
 
-template<class T>
-T *begin(const Slice<T> &self)
-{
-    return self.data;
-}
+///--- 3}}} --------------------------------------------------------------------
 
-template<class T>
-T *end(const Slice<T> &self)
-{
-    return self.data + self.len;
-}
+///--- OPERATORS ----------------------------------------------------------- {{{3
 
-template<class T>
-const T *cbegin(const Slice<T> &self)
+template<template<class> class Container, class Data>
+bool operator==(const Container<Data> &lhs, const Container<Data> &rhs)
 {
-    return self.data;
-}
-
-template<class T>
-const T *cend(const Slice<T> &self)
-{
-    return self.data + self.len;
+    if (len(lhs) != len(rhs)) {
+        return false;
+    }
+    for (isize i = 0; i < len(lhs); i++) {
+        if (lhs[i] != rhs[i]) {
+            return false;
+        }
+    }
+    return true;
 }
 
 ///--- 3}}} --------------------------------------------------------------------
@@ -451,72 +444,52 @@ const T *cend(const Slice<T> &self)
 
 ///--- POINTER ------------------------------------------------------------ {{{2
 
-template<class T>
-isize len(const Slice<T> *self)
+template<template<class> class Container, class Data>
+isize len(const Container<Data> *self)
 {
     return self->len;
 }
 
-template<class T>
-isize len(const Array<T> *self)
-{
-    return self->len;
-}
-
-template<class T>
-isize cap(const Array<T> *self)
+template<template<class> class Container, class Data>
+isize cap(const Container<Data> *self)
 {
     return self->cap;
 }
 
 ///--- ITERATORS ---------------------------------------------------------- {{{3
 
-template<class T>
-T *begin(const Array<T> *self)
+template<template<class> class Container, class Data>
+Data *begin(const Container<Data> *self)
 {
     return self->data;
 }
 
-template<class T>
-T *end(const Array<T> *self)
+template<template<class> class Container, class Data>
+Data *end(const Container<Data> *self)
 {
     return self->data + self->len;
 }
 
-template<class T>
-const T *cbegin(const Array<T> *self)
+template<template<class> class Container, class Data>
+const Data *cbegin(const Container<Data> *self)
 {
     return self->data;
 }
 
-template<class T>
-const T *cend(const Array<T> *self)
+template<template<class> class Container, class Data>
+const Data *cend(const Container<Data> *self)
 {
     return self->data + self->len;
 }
 
-template<class T>
-T *begin(const Slice<T> *self)
-{
-    return self->data;
-}
+///--- 3}}} --------------------------------------------------------------------
 
-template<class T>
-T *end(const Slice<T> *self)
-{
-    return self->data + self->len;
-}
+///--- OPERATORS ---------------------------------------------------------- {{{3
 
-template<class T>
-const T *cbegin(const Slice<T> *self)
+template<template<class> class Container, class Data>
+bool operator==(const Container<Data> *lhs, const Container<Data> *rhs)
 {
-    return self->data;
-}
-
-template<class T>
-const T *cend(const Slice<T> *self)
-{
-    return self->data + self->len;
+    return operator==<Container, Data>(*lhs, *rhs);
 }
 
 ///--- 3}}} --------------------------------------------------------------------
@@ -525,8 +498,10 @@ const T *cend(const Slice<T> *self)
 
 ///--- 1}}} --------------------------------------------------------------------
 
+template<class Callback>
 struct _private_defer {
-    _private_defer(std::function<void (void)> &&callback)
+
+    _private_defer(const Callback &&callback)
     : m_callback{callback}
     {}
 
@@ -534,21 +509,15 @@ struct _private_defer {
     {
         m_callback();
     }
-    std::function<void (void)> m_callback;
+
+    Callback m_callback;
 };
 
-#define X__STRINGIFY(x) #x
-#define STRINGIFY(x)    X__STRINGIFY(x)
-
-#define X__defer1(name, suffix) name ##suffix
-#define X__defer2(name, suffix) X__defer1(name, suffix)
-#define X__defer3(name)         X__defer2(name, __COUNTER__)
-
 /**
- * @see
+ * @link
  *      https://github.com/gingerBill/gb/blob/master/gb.h#L636
  */
-#define defer(body) auto X__defer3(_defer_) = _private_defer([&]()->void {body;})
+#define defer(body) auto NAME_COUNTER(_defer_) = _private_defer([&]() {body;})
 
 #ifdef ODIN_IMPLEMENTATION
 
@@ -585,6 +554,8 @@ void *heap_allocator_proc(void *allocator_data, Allocator_Mode mode, Allocator_P
                 std::fflush(stderr);
                 std::abort();
             }
+            // Loading a potentially invalid address immediately is not a safe
+            // assumption for all architectures.
             if (new_region_len > 0) {
                 byte *new_region_start = static_cast<byte *>(ptr) + args.old_size;
                 std::memset(new_region_start, 0, new_region_len);

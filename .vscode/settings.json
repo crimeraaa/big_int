@@ -33,7 +33,18 @@
         "iterator": "cpp",
         "optional": "cpp",
         "algorithm": "cpp",
-        "functional": "cpp"
+        "functional": "cpp",
+        "array": "cpp",
+        "atomic": "cpp",
+        "cmath": "cpp",
+        "ctime": "cpp",
+        "list": "cpp",
+        "memory": "cpp",
+        "string": "cpp",
+        "typeinfo": "cpp",
+        "unordered_map": "cpp",
+        "vector": "cpp",
+        "xhash": "cpp"
     },
     "python.analysis.typeCheckingMode": "basic",
     "Lua.workspace.checkThirdParty": false
